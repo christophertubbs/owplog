@@ -4,6 +4,7 @@ project(owplog VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(OWPLOG_BUILD_TESTS "Build owplog tests" ON)
 option(OWPLOG_BUILD_SHARED_C_API "Build owplog C ABI shared library" ON)
@@ -54,7 +55,13 @@ if(OWPLOG_BUILD_TESTS)
     add_executable(owplog_tests tests/logger_tests.cpp)
     target_link_libraries(owplog_tests PRIVATE owplog GTest::gtest_main)
     if(TARGET owplog_c)
-        target_link_libraries(owplog_tests PRIVATE owplog_c)
+        target_link_libraries(
+                owplog_tests
+                PRIVATE
+                    owplog
+                    owplog_c
+                    stdc++fs
+        )
     endif()
 
     include(GoogleTest)
