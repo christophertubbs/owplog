@@ -1,0 +1,118 @@
+# ------------------------------
+# OS / Filesystem noise
+# ------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.Spotlight-V100/
+.Trashes/
+ehthumbs.db
+
+# ------------------------------
+# Logs / runtime artifacts
+# ------------------------------
+*.log
+*.log.*
+*.out
+*.err
+*.pid
+*.stackdump
+*.dmp
+
+# ------------------------------
+# CMake / CTest / build outputs
+# ------------------------------
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+_deps/
+
+# Generated binaries/libraries
+*.o
+*.obj
+*.lo
+*.la
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.exp
+*.pdb
+*.idb
+*.ilk
+*.manifest
+
+# ------------------------------
+# Compiler/tooling caches
+# ------------------------------
+*.gcda
+*.gcno
+*.gcov
+*.profraw
+*.profdata
+*.coverage
+*.lcov
+
+# ------------------------------
+# IDE / editor artifacts
+# ------------------------------
+.idea/
+.vscode/
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+*.iml
+*.ipr
+*.iws
+
+# CLion / JetBrains CMake metadata
+.cmake/
+
+# ------------------------------
+# Python artifacts (interop/scripts)
+# ------------------------------
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.venv/
+venv/
+env/
+ENV/
+.ipynb_checkpoints/
+
+# ------------------------------
+# Fortran module outputs
+# ------------------------------
+*.mod
+*.smod
+
+# ------------------------------
+# Archives / packages (usually generated)
+# ------------------------------
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+

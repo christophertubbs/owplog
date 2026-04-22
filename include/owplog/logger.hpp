@@ -1,0 +1,286 @@
+#ifndef OWPLOG_LOGGER_HPP
+#define OWPLOG_LOGGER_HPP
+
+/**
+ * @file logger.hpp
+ * @brief Singleton asynchronous logger public interface.
+ */
+
+#include "owplog/filter.hpp"
+#include "owplog/formatter.hpp"
+#include "owplog/sink.hpp"
+
+#include <condition_variable>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <string_view>
+#include <thread>
+#include <vector>
+
+namespace owplog {
+
+/**
+ * @brief Process-wide asynchronous logger singleton.
+ *
+ * Producers enqueue @ref LogRecord objects and return quickly.
+ * A dedicated worker thread dequeues records, applies filters/formatter,
+ * and dispatches output to configured sinks.
+ *
+ * @pre None. The singleton is lazy-initialized on first access.
+ * @post Logger lifetime spans the process.
+ * @note Most methods are thread-safe unless otherwise documented.
+ * @note API methods do not intentionally throw for normal operation.
+ *       Allocation failures (for example `std::bad_alloc`) can still propagate.
+ */
+class Logger final {
+public:
+    /**
+     * @brief Access singleton instance.
+     * @return Reference to global logger.
+     * @pre None.
+     * @post Returns the same instance for all callers in the process.
+     * @throws May propagate static initialization or allocation failures.
+     */
+    static Logger& instance();
+
+    /**
+     * @brief Start worker thread if not already running.
+     * @pre None.
+     * @post Worker thread is running unless thread creation failed.
+     * @throws May propagate thread creation/system errors.
+     */
+    void start();
+    /**
+     * @brief Stop worker thread and optional stdio capture.
+     * @pre None.
+     * @post Worker thread is stopped and stdio capture is inactive.
+     * @note Safe to call multiple times.
+     */
+    void shutdown();
+
+    /**
+     * @brief Set process-level minimum accepted level.
+     * @param level Minimum severity threshold.
+     * @pre `level` is a valid @ref LogLevel value.
+     * @post Future records below `level` are dropped before queueing.
+     * @throws No intentional exceptions.
+     */
+    void set_level(LogLevel level);
+    /**
+     * @brief Read current process-level threshold.
+     * @return Configured level threshold.
+     * @pre None.
+     * @post Logger state is unchanged.
+     * @throws No intentional exceptions.
+     */
+    LogLevel level() const;
+
+    /**
+     * @brief Replace active formatter.
+     * @param formatter Formatter instance (null restores default pattern formatter).
+     * @pre None.
+     * @post Formatter used by subsequent records is updated.
+     * @throws May propagate allocation failures when restoring default formatter.
+     */
+    void set_formatter(LogFormatterPtr formatter);
+    /**
+     * @brief Add a sink destination.
+     * @param sink Sink instance to append.
+     * @pre `sink` should be non-null for useful output.
+     * @post Sink list contains appended sink pointer.
+     * @throws May propagate allocation failures when growing sink storage.
+     */
+    void add_sink(LogSinkPtr sink);
+    /**
+     * @brief Remove all configured sinks.
+     * @pre None.
+     * @post Sink list is empty.
+     * @throws No intentional exceptions.
+     */
+    void clear_sinks();
+
+    /**
+     * @brief Add a process-level filter.
+     * @param filter Filter to append.
+     * @pre `filter` should be non-null for useful filtering.
+     * @post Filter list contains appended filter pointer.
+     * @throws May propagate allocation failures when growing filter storage.
+     */
+    void add_filter(LogFilterPtr filter);
+    /**
+     * @brief Remove all process-level filters.
+     * @pre None.
+     * @post Process-level filter list is empty.
+     * @throws No intentional exceptions.
+     */
+    void clear_filters();
+
+    /**
+     * @brief Attach default console sink when sink list is empty.
+     * @pre None.
+     * @post At least one sink exists (unless allocation fails).
+     * @throws May propagate allocation failures.
+     */
+    void configure_default_console();
+    /**
+     * @brief Convenience helper to attach a file sink.
+     * @param path File output path.
+     * @param append True to append, false to truncate.
+     * @return True on success.
+     * @pre `path` refers to a writable location for the current process.
+     * @post On success, a file sink is appended.
+     * @post On failure, logger configuration is unchanged.
+     * @throws Never throws; implementation converts sink-construction exceptions to `false`.
+     */
+    bool add_file_sink(const std::string& path, bool append = true);
+
+    /**
+     * @brief Start capturing process stdout/stderr streams.
+     * @param capture_stdout Capture stdout when true.
+     * @param capture_stderr Capture stderr when true.
+     * @return True on success.
+     * @pre At least one of `capture_stdout` or `capture_stderr` must be true.
+     * @post On success, selected streams are redirected and capture threads are active.
+     * @post On failure, capture is not active for newly requested streams.
+     * @throws May propagate allocation failures when creating capture infrastructure.
+     */
+    bool start_stdio_capture(bool capture_stdout = true, bool capture_stderr = true);
+    /**
+     * @brief Stop stream capture threads and restore descriptors.
+     * @pre None.
+     * @post Capture is inactive and descriptors are restored for streams that were captured.
+     * @note Safe to call multiple times.
+     */
+    void stop_stdio_capture();
+    /**
+     * @brief Check whether stdio capture is active.
+     * @return True when capture helper is active.
+     * @pre None.
+     * @post Logger state is unchanged.
+     * @throws No intentional exceptions.
+     */
+    bool stdio_capture_active() const;
+    /**
+     * @brief Check whether the logger currently has configured sinks.
+     * @return True when at least one sink is configured.
+     * @pre None.
+     * @post Logger state is unchanged.
+     * @throws No intentional exceptions.
+     */
+    bool has_sinks() const;
+
+    /**
+     * @brief Enqueue one log record.
+     * @param level Severity level.
+     * @param message Message text.
+     * @param logger_name Logical logger name.
+     * @param source Optional source location.
+     * @param origin Record origin category.
+     * @param rank Optional HPC rank (-1 when unknown).
+     * @param language Optional caller language/runtime label.
+     * @pre `level` should not be @ref LogLevel::Off to produce output.
+     * @post Accepted records are queued for asynchronous processing.
+     * @post Rejected records (threshold/off) leave queue unchanged.
+     * @throws May propagate allocation failures while creating queue records.
+     */
+    void log(
+        LogLevel level,
+        std::string_view message,
+        std::string_view logger_name = "owplog",
+        SourceLocation source = {},
+        LogOrigin origin = LogOrigin::Application,
+        int rank = -1,
+        std::string_view language = {});
+
+    /**
+     * @brief Wait until queue drains and flush all sinks.
+     * @pre None.
+     * @post All records accepted before call completion are dispatched.
+     * @post Each configured sink has had `flush()` invoked once.
+     * @throws No intentional exceptions.
+     */
+    void flush();
+
+private:
+    /** @brief Construct singleton with default formatter/level state. */
+    Logger();
+    /** @brief Ensure graceful shutdown on process teardown. */
+    ~Logger();
+
+    /** Deleted copy constructor for singleton semantics. */
+    Logger(const Logger&) = delete;
+    /** Deleted copy assignment for singleton semantics. */
+    Logger& operator=(const Logger&) = delete;
+
+    /** @brief Worker thread main loop. */
+    void worker_loop();
+    /**
+     * @brief Evaluate process-level filters.
+     * @param record Record under evaluation.
+     * @return True when allowed by all filters.
+     */
+    bool passes_filters(const LogRecord& record) const;
+    /**
+     * @brief Push record into queue and notify worker.
+     * @param record Record to enqueue.
+     */
+    void enqueue(LogRecord&& record);
+
+    /** Forward declaration for internal stdio capture bridge. */
+    class StdioCapture;
+
+    /** Mutex protecting configuration state (level/filters/sinks/formatter). */
+    mutable std::mutex config_mutex_;
+    /** Global minimum severity threshold. */
+    LogLevel level_;
+    /** Active formatter instance. */
+    LogFormatterPtr formatter_;
+    /** Active sink list. */
+    std::vector<LogSinkPtr> sinks_;
+    /** Process-level filter list. */
+    std::vector<LogFilterPtr> filters_;
+
+    /** Mutex protecting queue state and worker lifecycle fields. */
+    std::mutex queue_mutex_;
+    /** Condition variable waking worker on enqueue/shutdown. */
+    std::condition_variable queue_cv_;
+    /** Condition variable used by flush waiters. */
+    std::condition_variable flush_cv_;
+    /** Pending queue consumed by worker thread. */
+    std::deque<LogRecord> queue_;
+    /** Dedicated asynchronous worker thread. */
+    std::thread worker_;
+    /** True when worker thread is running. */
+    bool running_;
+    /** Shutdown request flag observed by worker loop. */
+    bool stop_requested_;
+    /** Count of records in queue or currently being processed. */
+    std::size_t in_flight_;
+
+    /** Optional stdio capture subsystem instance. */
+    std::unique_ptr<StdioCapture> stdio_capture_;
+};
+
+} // namespace owplog
+
+/** Source location helper macro for call-site metadata injection. */
+#define OWPLOG_SOURCE_LOCATION ::owplog::SourceLocation{__FILE__, __LINE__, __func__}
+
+/** Convenience macro for full custom log call with explicit level/name/message. */
+#define OWPLOG_LOG(level, logger_name, message) \
+    ::owplog::Logger::instance().log((level), (message), (logger_name), OWPLOG_SOURCE_LOCATION)
+
+/** Convenience macro for INFO-level messages on default logger name. */
+#define OWPLOG_LOG_INFO_MSG(message) \
+    ::owplog::Logger::instance().log(::owplog::LogLevel::Info, (message), "owplog", OWPLOG_SOURCE_LOCATION)
+
+/** Convenience macro for WARNING-level messages on default logger name. */
+#define OWPLOG_LOG_WARNING_MSG(message) \
+    ::owplog::Logger::instance().log(::owplog::LogLevel::Warning, (message), "owplog", OWPLOG_SOURCE_LOCATION)
+
+/** Convenience macro for ERROR-level messages on default logger name. */
+#define OWPLOG_LOG_ERROR_MSG(message) \
+    ::owplog::Logger::instance().log(::owplog::LogLevel::Error, (message), "owplog", OWPLOG_SOURCE_LOCATION)
+
+#endif
