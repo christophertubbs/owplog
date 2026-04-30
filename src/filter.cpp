@@ -17,7 +17,7 @@ LevelFilter::LevelFilter(LogLevel min_level)
  * @return True when record level satisfies threshold.
  */
 bool LevelFilter::allow(const LogRecord& record) const {
-    return static_cast<int>(record.level) >= static_cast<int>(min_level_);
+    return static_cast<int>(record.level) >= static_cast<int>(this->min_level_);
 }
 
 /**
@@ -33,11 +33,11 @@ SubstringFilter::SubstringFilter(std::string token)
  * @return True when token is present or empty.
  */
 bool SubstringFilter::allow(const LogRecord& record) const {
-    if (token_.empty()) {
+    if (this->token_.empty()) {
         return true;
     }
-    return record.message.find(token_) != std::string::npos
-        || record.logger_name.find(token_) != std::string::npos;
+    return record.message.find(this->token_) != std::string::npos
+        || record.logger_name.find(this->token_) != std::string::npos;
 }
 
 } // namespace owplog

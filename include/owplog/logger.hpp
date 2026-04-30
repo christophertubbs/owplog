@@ -8,7 +8,7 @@
 
 #include "owplog/filter.hpp"
 #include "owplog/formatter.hpp"
-#include "owplog/sink.hpp"
+#include "owplog/handler.hpp"
 
 #include <condition_variable>
 #include <deque>
@@ -91,7 +91,7 @@ public:
      * @post Sink list contains appended sink pointer.
      * @throws May propagate allocation failures when growing sink storage.
      */
-    void add_sink(LogSinkPtr sink);
+    void add_sink(LogHandlerPtr sink);
     /**
      * @brief Remove all configured sinks.
      * @pre None.
@@ -202,16 +202,16 @@ public:
      */
     void flush();
 
+    /** Deleted copy constructor for singleton semantics. */
+    Logger(const Logger&) = delete;
+    /** Deleted copy assignment for singleton semantics. */
+    Logger& operator=(const Logger&) = delete;
+
 private:
     /** @brief Construct singleton with default formatter/level state. */
     Logger();
     /** @brief Ensure graceful shutdown on process teardown. */
     ~Logger();
-
-    /** Deleted copy constructor for singleton semantics. */
-    Logger(const Logger&) = delete;
-    /** Deleted copy assignment for singleton semantics. */
-    Logger& operator=(const Logger&) = delete;
 
     /** @brief Worker thread main loop. */
     void worker_loop();
@@ -237,7 +237,7 @@ private:
     /** Active formatter instance. */
     LogFormatterPtr formatter_;
     /** Active sink list. */
-    std::vector<LogSinkPtr> sinks_;
+    std::vector<LogHandlerPtr> handlers_;
     /** Process-level filter list. */
     std::vector<LogFilterPtr> filters_;
 

@@ -17,7 +17,7 @@ namespace {
 /**
  * @brief Test sink that only counts writes.
  */
-class CountingSink final : public owplog::LogSink {
+class CountingSink final : public owplog::LogHandler {
 public:
     /** @brief Increment count for each delivered record. */
     void write(const owplog::LogRecord&, const std::string&) override {

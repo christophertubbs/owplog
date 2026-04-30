@@ -20,30 +20,30 @@ namespace {
 
 #ifdef _WIN32
 /** Windows wrapper for duplicating file descriptors. */
-int OWPLOG_dup(int fd) { return _dup(fd); }
+int duplicate_file_descriptor(int file_descriptor) { return _dup(file_descriptor); }
 /** Windows wrapper for replacing a file descriptor. */
-int OWPLOG_dup2(int old_fd, int new_fd) { return _dup2(old_fd, new_fd); }
+int redirect_file_descriptor(int from, int to) { return _dup2(from, to); }
 /** Windows wrapper for closing file descriptors. */
-int owplog_close(int fd) { return _close(fd); }
+int close_file_descriptor(int file_descriptor) { return _close(file_descriptor); }
 /** Windows wrapper for reading bytes from file descriptors. */
-int OWPLOG_read(int fd, void* buffer, unsigned int count) { return _read(fd, buffer, count); }
+int read_descriptor_into_buffer(int file_descriptor, void* buffer, unsigned int count) { return _read(file_descriptor, buffer, count); }
 /** Windows wrapper for creating anonymous pipes. */
-int OWPLOG_pipe(int* fds) { return _pipe(fds, 4096, _O_BINARY); }
+int create_pipe(int* fds) { return _pipe(fds, 4096, _O_BINARY); }
 /** Windows wrapper for retrieving FILE* descriptor. */
-int OWPLOG_fileno(FILE* stream) { return _fileno(stream); }
+int get_stream_file_descriptor(FILE* stream) { return _fileno(stream); }
 #else
 /** POSIX wrapper for duplicating file descriptors. */
-int OWPLOG_dup(int fd) { return dup(fd); }
+int duplicate_file_descriptor(int file_descriptor) { return dup(file_descriptor); }
 /** POSIX wrapper for replacing a file descriptor. */
-int OWPLOG_dup2(int old_fd, int new_fd) { return dup2(old_fd, new_fd); }
+int redirect_file_descriptor(int from, int to) { return dup2(from, to); }
 /** POSIX wrapper for closing file descriptors. */
-int owplog_close(int fd) { return close(fd); }
+int close_file_descriptor(int file_descriptor) { return close(file_descriptor); }
 /** POSIX wrapper for reading bytes from file descriptors. */
-int OWPLOG_read(int fd, void* buffer, unsigned int count) { return static_cast<int>(read(fd, buffer, count)); }
+int read_descriptor_into_buffer(int file_descriptor, void* buffer, unsigned int count) { return static_cast<int>(read(file_descriptor, buffer, count)); }
 /** POSIX wrapper for creating anonymous pipes. */
-int OWPLOG_pipe(int* fds) { return pipe(fds); }
+int create_pipe(int* fds) { return pipe(fds); }
 /** POSIX wrapper for retrieving FILE* descriptor. */
-int OWPLOG_fileno(FILE* stream) { return fileno(stream); }
+int get_stream_file_descriptor(FILE* stream) { return fileno(stream); }
 #endif
 
 /**
@@ -141,35 +141,35 @@ private:
         }
 
         // File descriptor associated with FILE* stream.
-        const int target_fd = OWPLOG_fileno(stream);
+        const int target_fd = get_stream_file_descriptor(stream);
         if (target_fd < 0) {
             return false;
         }
 
         std::fflush(stream);
         // Saved copy used to restore the original stream on stop.
-        const int original_fd = OWPLOG_dup(target_fd);
+        const int original_fd = duplicate_file_descriptor(target_fd);
         if (original_fd < 0) {
             return false;
         }
 
         // Pipe descriptors used for stream redirection.
         int pipe_fds[2] = {-1, -1};
-        if (OWPLOG_pipe(pipe_fds) != 0) {
-            owplog_close(original_fd);
+        if (create_pipe(pipe_fds) != 0) {
+            close_file_descriptor(original_fd);
             return false;
         }
 
         // Redirect target stream to pipe write side.
-        if (OWPLOG_dup2(pipe_fds[1], target_fd) < 0) {
-            owplog_close(original_fd);
-            owplog_close(pipe_fds[0]);
-            owplog_close(pipe_fds[1]);
+        if (redirect_file_descriptor(pipe_fds[1], target_fd) < 0) {
+            close_file_descriptor(original_fd);
+            close_file_descriptor(pipe_fds[0]);
+            close_file_descriptor(pipe_fds[1]);
             return false;
         }
 
         // Parent process only needs read side after descriptor replacement.
-        owplog_close(pipe_fds[1]);
+        close_file_descriptor(pipe_fds[1]);
 
         state.active = true;
         state.original_fd = original_fd;
@@ -183,9 +183,10 @@ private:
             std::string pending;
             // Scratch buffer used for fd reads.
             char buffer[256];
+            size_t buffer_size = sizeof(buffer);
             while (true) {
                 // Number of bytes read from pipe.
-                const int bytes = OWPLOG_read(state.read_fd, buffer, sizeof(buffer));
+                const int bytes = read_descriptor_into_buffer(state.read_fd, buffer, buffer_size);
                 if (bytes <= 0) {
                     break;
                 }
@@ -213,7 +214,7 @@ private:
             if (!pending.empty()) {
                 logger_.log(LogLevel::Info, pending, state.label, {}, state.origin);
             }
-            owplog_close(state.read_fd);
+            close_file_descriptor(state.read_fd);
             state.read_fd = -1;
         });
 
@@ -230,9 +231,9 @@ private:
         }
 
         // Flush redirected stream before restoring original descriptor.
-        std::fflush(state.target_fd == OWPLOG_fileno(stdout) ? stdout : stderr);
-        OWPLOG_dup2(state.original_fd, state.target_fd);
-        owplog_close(state.original_fd);
+        std::fflush(state.target_fd == get_stream_file_descriptor(stdout) ? stdout : stderr);
+        redirect_file_descriptor(state.original_fd, state.target_fd);
+        close_file_descriptor(state.original_fd);
         state.original_fd = -1;
 
         if (state.reader.joinable()) {
@@ -276,94 +277,94 @@ Logger::Logger()
 
 /** @brief Ensure clean shutdown during static teardown. */
 Logger::~Logger() {
-    shutdown();
+    this->shutdown();
 }
 
 /** @brief Start worker thread if not already running. */
 void Logger::start() {
-    std::lock_guard<std::mutex> lock(queue_mutex_);
-    if (running_) {
+    std::lock_guard<std::mutex> lock(this->queue_mutex_);
+    if (this->running_) {
         return;
     }
-    stop_requested_ = false;
-    worker_ = std::thread(&Logger::worker_loop, this);
-    running_ = true;
+    this->stop_requested_ = false;
+    this->worker_ = std::thread(&Logger::worker_loop, this);
+    this->running_ = true;
 }
 
 /** @brief Stop stdio capture and terminate worker thread. */
 void Logger::shutdown() {
-    stop_stdio_capture();
+    this->stop_stdio_capture();
 
     {
-        std::lock_guard<std::mutex> lock(queue_mutex_);
-        if (!running_) {
+        std::lock_guard<std::mutex> lock(this->queue_mutex_);
+        if (!this->running_) {
             return;
         }
-        stop_requested_ = true;
+        this->stop_requested_ = true;
     }
-    queue_cv_.notify_all();
-    if (worker_.joinable()) {
-        worker_.join();
+    this->queue_cv_.notify_all();
+    if (this->worker_.joinable()) {
+        this->worker_.join();
     }
 
-    std::lock_guard<std::mutex> lock(queue_mutex_);
-    running_ = false;
+    std::lock_guard<std::mutex> lock(this->queue_mutex_);
+    this->running_ = false;
 }
 
 /** @brief Update process-level threshold. */
 void Logger::set_level(LogLevel level) {
-    std::lock_guard<std::mutex> lock(config_mutex_);
-    level_ = level;
+    std::lock_guard<std::mutex> lock(this->config_mutex_);
+    this->level_ = level;
 }
 
 /** @brief Read process-level threshold. */
 LogLevel Logger::level() const {
-    std::lock_guard<std::mutex> lock(config_mutex_);
-    return level_;
+    std::lock_guard<std::mutex> lock(this->config_mutex_);
+    return this->level_;
 }
 
 /** @brief Set active formatter or restore default formatter. */
 void Logger::set_formatter(LogFormatterPtr formatter) {
-    std::lock_guard<std::mutex> lock(config_mutex_);
-    formatter_ = formatter ? std::move(formatter) : std::make_shared<PatternFormatter>();
+    std::lock_guard<std::mutex> lock(this->config_mutex_);
+    this->formatter_ = formatter ? std::move(formatter) : std::make_shared<PatternFormatter>();
 }
 
 /** @brief Append a sink to dispatch list. */
-void Logger::add_sink(LogSinkPtr sink) {
-    std::lock_guard<std::mutex> lock(config_mutex_);
-    sinks_.push_back(std::move(sink));
+void Logger::add_sink(LogHandlerPtr sink) {
+    std::lock_guard<std::mutex> lock(this->config_mutex_);
+    this->handlers_.push_back(std::move(sink));
 }
 
 /** @brief Remove all sinks. */
 void Logger::clear_sinks() {
-    std::lock_guard<std::mutex> lock(config_mutex_);
-    sinks_.clear();
+    std::lock_guard<std::mutex> lock(this->config_mutex_);
+    this->handlers_.clear();
 }
 
 /** @brief Append a process-level filter. */
 void Logger::add_filter(LogFilterPtr filter) {
-    std::lock_guard<std::mutex> lock(config_mutex_);
-    filters_.push_back(std::move(filter));
+    std::lock_guard<std::mutex> lock(this->config_mutex_);
+    this->filters_.push_back(std::move(filter));
 }
 
 /** @brief Remove all process-level filters. */
 void Logger::clear_filters() {
-    std::lock_guard<std::mutex> lock(config_mutex_);
-    filters_.clear();
+    std::lock_guard<std::mutex> lock(this->config_mutex_);
+    this->filters_.clear();
 }
 
 /** @brief Add default console sink when none exists. */
 void Logger::configure_default_console() {
-    std::lock_guard<std::mutex> lock(config_mutex_);
-    if (sinks_.empty()) {
-        sinks_.push_back(std::make_shared<ConsoleSink>());
+    std::lock_guard<std::mutex> lock(this->config_mutex_);
+    if (this->handlers_.empty()) {
+        this->handlers_.push_back(std::make_shared<ConsoleHandler>());
     }
 }
 
 /** @brief Add file sink and convert exceptions to boolean status. */
 bool Logger::add_file_sink(const std::string& path, bool append) {
     try {
-        add_sink(std::make_shared<FileSink>(path, append));
+        add_sink(std::make_shared<FileHandler>(path, append));
         return true;
     } catch (...) {
         return false;
@@ -376,28 +377,28 @@ bool Logger::start_stdio_capture(bool capture_stdout, bool capture_stderr) {
         return false;
     }
 
-    if (!stdio_capture_) {
-        stdio_capture_ = std::make_unique<StdioCapture>(*this);
+    if (!this->stdio_capture_) {
+        this->stdio_capture_ = std::make_unique<StdioCapture>(*this);
     }
-    return stdio_capture_->start(capture_stdout, capture_stderr);
+    return this->stdio_capture_->start(capture_stdout, capture_stderr);
 }
 
 /** @brief Stop stdout/stderr capture helper. */
 void Logger::stop_stdio_capture() {
-    if (stdio_capture_) {
-        stdio_capture_->stop();
+    if (this->stdio_capture_) {
+        this->stdio_capture_->stop();
     }
 }
 
 /** @brief Query whether stdio capture helper is active. */
 bool Logger::stdio_capture_active() const {
-    return stdio_capture_ && stdio_capture_->active();
+    return this->stdio_capture_ && this->stdio_capture_->active();
 }
 
 /** @brief Query whether at least one sink is configured. */
 bool Logger::has_sinks() const {
-    std::lock_guard<std::mutex> lock(config_mutex_);
-    return !sinks_.empty();
+    std::lock_guard<std::mutex> lock(this->config_mutex_);
+    return !this->handlers_.empty();
 }
 
 /**
@@ -406,7 +407,7 @@ bool Logger::has_sinks() const {
  * @return True when all filters allow the record.
  */
 bool Logger::passes_filters(const LogRecord& record) const {
-    for (const auto& filter : filters_) {
+    for (const auto& filter : this->filters_) {
         if (filter && !filter->allow(record)) {
             return false;
         }
@@ -431,16 +432,17 @@ void Logger::log(
     SourceLocation source,
     LogOrigin origin,
     int rank,
-    std::string_view language) {
+    std::string_view language
+) {
     // Reject disabled sentinel level immediately.
     if (level == LogLevel::Off) {
         return;
     }
 
     {
-        std::lock_guard<std::mutex> lock(config_mutex_);
+        std::lock_guard<std::mutex> lock(this->config_mutex_);
         // Fast threshold check under config lock.
-        if (static_cast<int>(level) < static_cast<int>(level_)) {
+        if (static_cast<int>(level) < static_cast<int>(this->level_)) {
             return;
         }
     }
@@ -464,11 +466,11 @@ void Logger::log(
 /** @brief Push record into queue and signal worker. */
 void Logger::enqueue(LogRecord&& record) {
     {
-        std::lock_guard<std::mutex> lock(queue_mutex_);
-        queue_.push_back(std::move(record));
-        ++in_flight_;
+        std::lock_guard<std::mutex> lock(this->queue_mutex_);
+        this->queue_.push_back(std::move(record));
+        ++this->in_flight_;
     }
-    queue_cv_.notify_one();
+    this->queue_cv_.notify_one();
 }
 
 /** @brief Worker loop that drains queue and dispatches to sinks. */
@@ -477,33 +479,33 @@ void Logger::worker_loop() {
         // Local record storage for current dispatch unit.
         LogRecord record;
         {
-            std::unique_lock<std::mutex> lock(queue_mutex_);
-            queue_cv_.wait(lock, [this]() {
-                return stop_requested_ || !queue_.empty();
+            std::unique_lock<std::mutex> lock(this->queue_mutex_);
+            this->queue_cv_.wait(lock, [this]() {
+                return this->stop_requested_ || !this->queue_.empty();
             });
 
             // Stop only when shutdown requested and queue already drained.
-            if (queue_.empty()) {
-                if (stop_requested_) {
+            if (this->queue_.empty()) {
+                if (this->stop_requested_) {
                     break;
                 }
                 continue;
             }
 
             // Move one record out of queue for processing outside lock.
-            record = std::move(queue_.front());
-            queue_.pop_front();
+            record = std::move(this->queue_.front());
+            this->queue_.pop_front();
         }
 
         // Snapshot formatter/sinks/filters so processing uses consistent view.
         LogFormatterPtr formatter;
-        std::vector<LogSinkPtr> sinks;
+        std::vector<LogHandlerPtr> sinks;
         std::vector<LogFilterPtr> filters;
         {
-            std::lock_guard<std::mutex> lock(config_mutex_);
-            formatter = formatter_;
-            sinks = sinks_;
-            filters = filters_;
+            std::lock_guard<std::mutex> lock(this->config_mutex_);
+            formatter = this->formatter_;
+            sinks = this->handlers_;
+            filters = this->filters_;
         }
 
         // Aggregate filter decision.
@@ -532,12 +534,12 @@ void Logger::worker_loop() {
 
         // Update in-flight count and notify flush waiters when queue is empty.
         {
-            std::lock_guard<std::mutex> lock(queue_mutex_);
-            if (in_flight_ > 0) {
-                --in_flight_;
+            std::lock_guard<std::mutex> lock(this->queue_mutex_);
+            if (this->in_flight_ > 0) {
+                --this->in_flight_;
             }
-            if (in_flight_ == 0 && queue_.empty()) {
-                flush_cv_.notify_all();
+            if (this->in_flight_ == 0 && this->queue_.empty()) {
+                this->flush_cv_.notify_all();
             }
         }
     }
@@ -546,18 +548,19 @@ void Logger::worker_loop() {
 /** @brief Wait for queue drain and flush all sink buffers. */
 void Logger::flush() {
     {
-        std::unique_lock<std::mutex> lock(queue_mutex_);
-        flush_cv_.wait(lock, [this]() {
-            return queue_.empty() && in_flight_ == 0;
+        std::unique_lock<std::mutex> lock(this->queue_mutex_);
+        this->flush_cv_.wait(lock, [this]() {
+            return this->queue_.empty() && this->in_flight_ == 0;
         });
     }
 
-    std::vector<LogSinkPtr> sinks;
+    std::vector<LogHandlerPtr> handlers;
     {
-        std::lock_guard<std::mutex> lock(config_mutex_);
-        sinks = sinks_;
+        std::lock_guard<std::mutex> lock(this->config_mutex_);
+        handlers = this->handlers_;
     }
-    for (const auto& sink : sinks) {
+
+    for (const auto& sink : handlers) {
         if (sink) {
             sink->flush();
         }

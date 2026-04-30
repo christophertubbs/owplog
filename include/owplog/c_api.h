@@ -10,10 +10,17 @@
 extern "C" {
 #endif
 
+typedef enum owplog_backend_state
+{
+    OWPLOG_BACKEND_UNAVAILABLE = 0,
+    OWPLOG_BACKEND_ACCEPTING = 1,
+    OWPLOG_BACKEND_STOPPING = 2
+} owplog_backend_state;
+
 /**
  * @brief Log levels accepted by the owplog C API.
  */
-enum owplog_log_level {
+typedef enum owplog_log_level {
     /** Trace-level diagnostic output. */
     OWPLOG_LOG_TRACE = 0,
     /** Debug-level diagnostic output. */
@@ -28,7 +35,7 @@ enum owplog_log_level {
     OWPLOG_LOG_CRITICAL = 50,
     /** Disable logging output entirely. */
     OWPLOG_LOG_OFF = 60
-};
+} owplog_log_level;
 
 /** Opaque integer handle returned when registering a named sublogger. */
 typedef int owplog_sublogger_handle;
@@ -55,6 +62,16 @@ typedef struct owplog_log_meta {
     /** Optional rank metadata (-1 when unknown). */
     int rank;
 } owplog_log_meta;
+
+typedef owplog_backend_state (*owplog_backend_get_state_fn)(void *context);
+typedef int (*owplog_backend_submit_fn)(
+    void *context,
+    int level,
+    const char *logger_name,
+    const char *message,
+    const owplog_log_meta *meta
+);
+typedef void (*owplog_backend_flush_fn)(void *context);
 
 /**
  * @brief Register a named sublogger for handle-based logging.
@@ -118,7 +135,8 @@ void owplog_logger_log_ex(
     int level,
     const char* logger_name,
     const char* message,
-    const owplog_log_meta* meta);
+    const owplog_log_meta* meta
+);
 
 #ifdef __cplusplus
 }
