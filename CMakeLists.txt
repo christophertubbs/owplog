@@ -16,7 +16,7 @@ add_library(owplog STATIC
     src/filter.cpp
     src/formatter.cpp
     src/logger.cpp
-    src/sink.cpp
+        src/handler.cpp
 )
 add_library(OWPLOG::owplog ALIAS owplog)
 

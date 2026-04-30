@@ -41,11 +41,13 @@ int main() {
     logger.clear_filters();
     logger.set_level(owplog::LogLevel::Trace);
     logger.set_formatter(std::make_shared<owplog::PatternFormatter>("%T [%L] (%N) %f:%l %F rank=%r lang=%g %m"));
-    logger.configure_default_console();
+    //logger.configure_default_console();
     logger.add_file_sink("owplog_e2e_native.log", false);
+    logger.start_stdio_capture();
 
     logger.log(owplog::LogLevel::Info, "main started and logger configured", "e2e.main", OWPLOG_SOURCE_LOCATION);
     cpp_component_emit_logs();
+    cpp_echo_messages();
     c_component_emit_logs();
 #if defined(OWPLOG_E2E_HAVE_FORTRAN)
     fortran_component_emit_logs();

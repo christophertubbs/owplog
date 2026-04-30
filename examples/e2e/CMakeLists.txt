@@ -23,7 +23,7 @@ if(CMAKE_Fortran_COMPILER)
     target_compile_definitions(owplog_e2e_native PRIVATE OWPLOG_E2E_HAVE_FORTRAN=1)
 endif()
 
-find_package(pybind11 CONFIG QUIET)
+find_package(pybind11 CONFIG)
 find_package(Python3 COMPONENTS Interpreter Development QUIET)
 if(pybind11_FOUND AND Python3_FOUND)
     target_link_libraries(owplog_e2e_native PRIVATE pybind11::embed)

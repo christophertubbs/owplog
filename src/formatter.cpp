@@ -77,16 +77,16 @@ PatternFormatter::PatternFormatter(std::string pattern)
 std::string PatternFormatter::format(const LogRecord& record) const {
     std::ostringstream out;
     // Pattern index for walking the format template.
-    for (std::size_t i = 0; i < pattern_.size(); ++i) {
+    for (std::size_t i = 0; i < this->pattern_.size(); ++i) {
         // Current template character.
-        const char c = pattern_[i];
-        if (c != '%' || i + 1 >= pattern_.size()) {
-            out << c;
+        const char character = this->pattern_[i];
+        if (character != '%' || i + 1 >= this->pattern_.size()) {
+            out << character;
             continue;
         }
 
         // Token letter following `%`.
-        const char token = pattern_[++i];
+        const char token = this->pattern_[++i];
         switch (token) {
             case 'T': out << time_string(record.timestamp); break;
             case 'L': out << to_string(record.level); break;
