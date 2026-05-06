@@ -1,4 +1,4 @@
-! fortran_component.f90
+! example_fortran.f90
 !
 ! TODO: Written by ChatGPT. Rewrite this yourself instead of pasting it
 ! directly into production like a sleep-deprived raccoon with linker flags.
@@ -49,7 +49,7 @@ contains
                 OWPLOG_LOG_INFO, &
                 "e2e.fortran", &
                 "info with Fortran metadata", &
-                file_name="fortran_component.f90", &
+                file_name="example_fortran.f90", &
                 line_no=38_c_int, &
                 function_name="fortran_component_emit_logs", &
                 language_name="fortran", &
@@ -127,7 +127,7 @@ contains
                         OWPLOG_LOG_WARNING, &
                         "e2e.fortran.fake_model", &
                         "low fake stability score detected during iteration", &
-                        file_name="fortran_component.f90", &
+                        file_name="example_fortran.f90", &
                         line_no=115_c_int, &
                         function_name="fortran_component_run_fake_model", &
                         language_name="fortran", &
