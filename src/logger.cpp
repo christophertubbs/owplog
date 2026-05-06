@@ -1,5 +1,7 @@
 #include "owplog/logger.hpp"
+#include "owplog/formatter.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -7,31 +9,13 @@
 #include <stdexcept>
 #include <utility>
 
-#ifdef _WIN32
-#include <fcntl.h>
-#include <io.h>
-#else
 #include <unistd.h>
-#endif
+#include <iostream>
 
 namespace owplog {
 
 namespace {
 
-#ifdef _WIN32
-/** Windows wrapper for duplicating file descriptors. */
-int duplicate_file_descriptor(int file_descriptor) { return _dup(file_descriptor); }
-/** Windows wrapper for replacing a file descriptor. */
-int redirect_file_descriptor(int from, int to) { return _dup2(from, to); }
-/** Windows wrapper for closing file descriptors. */
-int close_file_descriptor(int file_descriptor) { return _close(file_descriptor); }
-/** Windows wrapper for reading bytes from file descriptors. */
-int read_descriptor_into_buffer(int file_descriptor, void* buffer, unsigned int count) { return _read(file_descriptor, buffer, count); }
-/** Windows wrapper for creating anonymous pipes. */
-int create_pipe(int* fds) { return _pipe(fds, 4096, _O_BINARY); }
-/** Windows wrapper for retrieving FILE* descriptor. */
-int get_stream_file_descriptor(FILE* stream) { return _fileno(stream); }
-#else
 /** POSIX wrapper for duplicating file descriptors. */
 int duplicate_file_descriptor(int file_descriptor) { return dup(file_descriptor); }
 /** POSIX wrapper for replacing a file descriptor. */
@@ -44,7 +28,6 @@ int read_descriptor_into_buffer(int file_descriptor, void* buffer, unsigned int 
 int create_pipe(int* fds) { return pipe(fds); }
 /** POSIX wrapper for retrieving FILE* descriptor. */
 int get_stream_file_descriptor(FILE* stream) { return fileno(stream); }
-#endif
 
 /**
  * @brief Internal helper that redirects stdout/stderr into logger records.
@@ -114,7 +97,7 @@ private:
         /** True when this stream redirection is active. */
         bool active = false;
         /** Original file descriptor saved before redirection. */
-        int original_fd = -1;
+        int stream_fd = -1;
         /** Read-side file descriptor for capture pipe. */
         int read_fd = -1;
         /** Target descriptor being redirected (stdout/stderr). */
@@ -155,13 +138,17 @@ private:
 
         // Pipe descriptors used for stream redirection.
         int pipe_fds[2] = {-1, -1};
-        if (create_pipe(pipe_fds) != 0) {
+        int pipe_created = create_pipe(pipe_fds);
+        if (pipe_created != 0) {
+            fprintf(stderr, "Pipes couldn't be created. Closing the original file descriptor: %d\n", original_fd);
             close_file_descriptor(original_fd);
             return false;
         }
 
-        // Redirect target stream to pipe write side.
-        if (redirect_file_descriptor(pipe_fds[1], target_fd) < 0) {
+        int second_pipe_redirected = redirect_file_descriptor(pipe_fds[1], target_fd);
+        // at this point nothing is really touching the given stream. If it's stderr, whoopsies, no more communication
+        if (second_pipe_redirected < 0) {
+            // If you're here, it is because something broke
             close_file_descriptor(original_fd);
             close_file_descriptor(pipe_fds[0]);
             close_file_descriptor(pipe_fds[1]);
@@ -172,7 +159,7 @@ private:
         close_file_descriptor(pipe_fds[1]);
 
         state.active = true;
-        state.original_fd = original_fd;
+        state.stream_fd = original_fd;
         state.read_fd = pipe_fds[0];
         state.target_fd = target_fd;
         state.origin = origin;
@@ -191,6 +178,7 @@ private:
                     break;
                 }
 
+                write(state.stream_fd, buffer, static_cast<std::size_t>(bytes));
                 pending.append(buffer, static_cast<std::size_t>(bytes));
                 // Scan pending buffer for newline-delimited complete lines.
                 std::size_t pos = 0;
@@ -204,7 +192,7 @@ private:
                     // Completed line text excluding delimiter.
                     const std::string line = pending.substr(pos, newline - pos);
                     if (!line.empty()) {
-                        logger_.log(LogLevel::Info, line, state.label, {}, state.origin);
+                        this->logger_.log(LogLevel::Info, line, state.label, {}, state.origin);
                     }
                     pos = newline + 1;
                 }
@@ -212,7 +200,8 @@ private:
 
             // Flush trailing non-newline text as final record.
             if (!pending.empty()) {
-                logger_.log(LogLevel::Info, pending, state.label, {}, state.origin);
+                LogLevel stateLevel = state.origin == LogOrigin::CapturedStdout ? LogLevel::Info : LogLevel::Error;
+                this->logger_.log(stateLevel, pending, state.label, {}, state.origin);
             }
             close_file_descriptor(state.read_fd);
             state.read_fd = -1;
@@ -225,20 +214,21 @@ private:
      * @brief Stop one stream redirection and restore original descriptor.
      * @param state Mutable stream state slot.
      */
-    void stop_one(StreamState& state) {
+    static void stop_one(StreamState& state) {
         if (!state.active) {
             return;
         }
 
         // Flush redirected stream before restoring original descriptor.
         std::fflush(state.target_fd == get_stream_file_descriptor(stdout) ? stdout : stderr);
-        redirect_file_descriptor(state.original_fd, state.target_fd);
-        close_file_descriptor(state.original_fd);
-        state.original_fd = -1;
+        redirect_file_descriptor(state.stream_fd, state.target_fd);
 
         if (state.reader.joinable()) {
             state.reader.join();
         }
+
+        close_file_descriptor(state.stream_fd);
+        state.stream_fd = -1;
         state.active = false;
     }
 
@@ -302,7 +292,7 @@ void Logger::shutdown() {
         }
         this->stop_requested_ = true;
     }
-    this->queue_cv_.notify_all();
+    this->queue_signal_.notify_all();
     if (this->worker_.joinable()) {
         this->worker_.join();
     }
@@ -329,14 +319,19 @@ void Logger::set_formatter(LogFormatterPtr formatter) {
     this->formatter_ = formatter ? std::move(formatter) : std::make_shared<PatternFormatter>();
 }
 
+void Logger::set_formatter(std::string pattern) {
+    std::lock_guard lock(this->config_mutex_);
+    this->formatter_ = std::make_shared<PatternFormatter>(pattern);
+}
+
 /** @brief Append a sink to dispatch list. */
-void Logger::add_sink(LogHandlerPtr sink) {
+void Logger::add_handler(LogHandlerPtr handler) {
     std::lock_guard<std::mutex> lock(this->config_mutex_);
-    this->handlers_.push_back(std::move(sink));
+    this->handlers_.push_back(std::move(handler));
 }
 
 /** @brief Remove all sinks. */
-void Logger::clear_sinks() {
+void Logger::clear_handlers() {
     std::lock_guard<std::mutex> lock(this->config_mutex_);
     this->handlers_.clear();
 }
@@ -364,7 +359,7 @@ void Logger::configure_default_console() {
 /** @brief Add file sink and convert exceptions to boolean status. */
 bool Logger::add_file_sink(const std::string& path, bool append) {
     try {
-        add_sink(std::make_shared<FileHandler>(path, append));
+        add_handler(std::make_shared<FileHandler>(path, append));
         return true;
     } catch (...) {
         return false;
@@ -372,7 +367,7 @@ bool Logger::add_file_sink(const std::string& path, bool append) {
 }
 
 /** @brief Start stdout/stderr capture helper. */
-bool Logger::start_stdio_capture(bool capture_stdout, bool capture_stderr) {
+bool Logger::capture_stdio(bool capture_stdout, bool capture_stderr) {
     if (!capture_stdout && !capture_stderr) {
         return false;
     }
@@ -396,7 +391,7 @@ bool Logger::stdio_capture_active() const {
 }
 
 /** @brief Query whether at least one sink is configured. */
-bool Logger::has_sinks() const {
+bool Logger::has_handlers() const {
     std::lock_guard<std::mutex> lock(this->config_mutex_);
     return !this->handlers_.empty();
 }
@@ -407,12 +402,13 @@ bool Logger::has_sinks() const {
  * @return True when all filters allow the record.
  */
 bool Logger::passes_filters(const LogRecord& record) const {
-    for (const auto& filter : this->filters_) {
-        if (filter && !filter->allow(record)) {
-            return false;
+    return std::all_of(
+        this->filters_.begin(),
+        this->filters_.end(),
+        [&record](const LogFilterPtr& filter) {
+            return filter && filter->allow(record);
         }
-    }
-    return true;
+    );
 }
 
 /**
@@ -460,6 +456,7 @@ void Logger::log(
     record.origin = origin;
     record.rank = rank;
     record.language = std::string(language);
+
     enqueue(std::move(record));
 }
 
@@ -470,7 +467,7 @@ void Logger::enqueue(LogRecord&& record) {
         this->queue_.push_back(std::move(record));
         ++this->in_flight_;
     }
-    this->queue_cv_.notify_one();
+    this->queue_signal_.notify_one();
 }
 
 /** @brief Worker loop that drains queue and dispatches to sinks. */
@@ -480,7 +477,7 @@ void Logger::worker_loop() {
         LogRecord record;
         {
             std::unique_lock<std::mutex> lock(this->queue_mutex_);
-            this->queue_cv_.wait(lock, [this]() {
+            this->queue_signal_.wait(lock, [this]() {
                 return this->stop_requested_ || !this->queue_.empty();
             });
 
@@ -539,7 +536,7 @@ void Logger::worker_loop() {
                 --this->in_flight_;
             }
             if (this->in_flight_ == 0 && this->queue_.empty()) {
-                this->flush_cv_.notify_all();
+                this->flush_signal_.notify_all();
             }
         }
     }
@@ -549,7 +546,7 @@ void Logger::worker_loop() {
 void Logger::flush() {
     {
         std::unique_lock<std::mutex> lock(this->queue_mutex_);
-        this->flush_cv_.wait(lock, [this]() {
+        this->flush_signal_.wait(lock, [this]() {
             return this->queue_.empty() && this->in_flight_ == 0;
         });
     }

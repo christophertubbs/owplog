@@ -138,8 +138,32 @@ void owplog_logger_log_ex(
     const owplog_log_meta* meta
 );
 
+void owplog_logger_log_full(
+    int level,
+    const char* logger_name,
+    const char* message,
+    const char* language,
+    const char* filename,
+    int line_number,
+    const char* function_name,
+    int rank
+);
+
 #ifdef __cplusplus
 }
 #endif
 
+#define LOG(level, logger_name, message)                                    \
+    do {                                                                    \
+    owplog_log_meta metadata = {__FILE__, __LINE__, __func__, "", -1};      \
+    owplog_logger_log_ex((level), (logger_name), (message), &metadata);     \
+} while (0)
+#define LOG_NAMED_INFO(logger_name, message) LOG(OWPLOG_LOG_INFO, logger_name, message)
+#define LOG_NAMED_WARNING(logger_name, message) LOG(OWPLOG_LOG_WARNING, logger_name, message)
+#define LOG_NAMED_ERROR(logger_name, message) LOG(OWPLOG_LOG_ERROR, logger_name, message)
+#define LOG_NAMED_DEBUG(logger_name, message) LOG(OWPLOG_LOG_DEBUG, logger_name, message)
+#define LOG_INFO(message) LOG_NAMED_INFO("owplog.c", message)
+#define LOG_WARNING(message) LOG_NAMED_WARNING("owplog.c", message)
+#define LOG_ERROR(message) LOG_NAMED_ERROR("owplog.c", message)
+#define LOG_DEBUG(message) LOG_NAMED_DEBUG("owplog.c", message)
 #endif

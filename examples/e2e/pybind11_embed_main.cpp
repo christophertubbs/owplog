@@ -26,7 +26,7 @@ PYBIND11_EMBEDDED_MODULE(owplog_pybridge, m) {
 
 int main() {
     auto& logger = owplog::Logger::instance();
-    logger.clear_sinks();
+    logger.clear_handlers();
     logger.clear_filters();
     logger.set_level(owplog::LogLevel::Trace);
     logger.set_formatter(std::make_shared<owplog::PatternFormatter>("%T [%L] (%N) %f:%l %F rank=%r lang=%g %m"));

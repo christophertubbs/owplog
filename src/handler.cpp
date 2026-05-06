@@ -100,6 +100,7 @@ void ConsoleHandler::write(const LogRecord& record, const std::string& formatted
         next_byte += written_byte_count;
         remaining_byte_count -= static_cast<std::size_t>(written_byte_count);
     }
+    ::write(target_descriptor, "\n", 1);
 }
 
 /**
