@@ -1,0 +1,514 @@
+#include "configuration.hpp"
+
+#include "owplog/filter.hpp"
+#include "owplog/formatter.hpp"
+#include "owplog/handler.hpp"
+#include "owplog/logger.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <fstream>
+#include <memory>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <unistd.h>
+
+namespace owplog {
+namespace {
+
+std::string trim(std::string text) {
+    const auto first = std::find_if_not(
+        text.begin(),
+        text.end(),
+        [](unsigned char ch) { return std::isspace(ch) != 0; }
+    );
+
+    const auto last = std::find_if_not(
+        text.rbegin(),
+        text.rend(),
+        [](unsigned char ch) { return std::isspace(ch) != 0; }
+    ).base();
+
+    if (first >= last) {
+        return {};
+    }
+
+    return std::string(first, last);
+}
+
+std::string lowercase(std::string text) {
+    std::transform(
+        text.begin(),
+        text.end(),
+        text.begin(),
+        [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        }
+    );
+    return text;
+}
+
+void add_warning(ConfigurationResult& result, std::size_t line_number, std::string message) {
+    result.warnings.push_back({line_number, std::move(message)});
+}
+
+void add_error(ConfigurationResult& result, std::size_t line_number, std::string message) {
+    result.errors.push_back({line_number, std::move(message)});
+}
+
+std::string resolve_template_variable(
+    const std::string& variable_name,
+    const ConfigurationContext& context,
+    ConfigurationResult& result,
+    std::size_t line_number
+) {
+    if (variable_name == "cwd") {
+        return context.current_working_directory;
+    }
+
+    if (variable_name == "application_name") {
+        return context.application_name;
+    }
+
+    add_error(result, line_number, "unknown template variable '${" + variable_name + "}'");
+    return {};
+}
+
+std::string expand_template_variables(
+    const std::string& value,
+    const ConfigurationContext& context,
+    ConfigurationResult& result,
+    std::size_t line_number
+) {
+    std::string expanded_value;
+    std::size_t search_position = 0;
+
+    while (search_position < value.size()) {
+        const std::size_t variable_start = value.find("${", search_position);
+        if (variable_start == std::string::npos) {
+            expanded_value.append(value.substr(search_position));
+            break;
+        }
+
+        expanded_value.append(value.substr(search_position, variable_start - search_position));
+
+        const std::size_t variable_end = value.find('}', variable_start + 2);
+        if (variable_end == std::string::npos) {
+            add_error(result, line_number, "unterminated template variable in '" + value + "'");
+            expanded_value.append(value.substr(variable_start));
+            break;
+        }
+
+        const std::string variable_name = value.substr(variable_start + 2, variable_end - variable_start - 2);
+        expanded_value.append(resolve_template_variable(variable_name, context, result, line_number));
+        search_position = variable_end + 1;
+    }
+
+    return expanded_value;
+}
+
+bool parse_bool(
+    const std::string& value,
+    bool& parsed_value,
+    ConfigurationResult& result,
+    std::size_t line_number
+) {
+    const std::string normalized_value = lowercase(trim(value));
+    if (normalized_value == "true" || normalized_value == "yes" || normalized_value == "on" || normalized_value == "1") {
+        parsed_value = true;
+        return true;
+    }
+    if (normalized_value == "false" || normalized_value == "no" || normalized_value == "off" || normalized_value == "0") {
+        parsed_value = false;
+        return true;
+    }
+
+    add_error(result, line_number, "expected a boolean value but found '" + value + "'");
+    return false;
+}
+
+bool parse_level(
+    const std::string& value,
+    LogLevel& parsed_level,
+    ConfigurationResult& result,
+    std::size_t line_number
+) {
+    const std::string normalized_value = lowercase(trim(value));
+
+    if (normalized_value == "trace") {
+        parsed_level = LogLevel::Trace;
+    } else if (normalized_value == "debug") {
+        parsed_level = LogLevel::Debug;
+    } else if (normalized_value == "info") {
+        parsed_level = LogLevel::Info;
+    } else if (normalized_value == "warning" || normalized_value == "warn") {
+        parsed_level = LogLevel::Warning;
+    } else if (normalized_value == "error") {
+        parsed_level = LogLevel::Error;
+    } else if (normalized_value == "critical") {
+        parsed_level = LogLevel::Critical;
+    } else if (normalized_value == "off") {
+        parsed_level = LogLevel::Off;
+    } else {
+        add_error(result, line_number, "unknown log level '" + value + "'");
+        return false;
+    }
+
+    return true;
+}
+
+void apply_filter_key(
+    FilterConfiguration& filter,
+    const std::string& suffix,
+    const std::string& value,
+    ConfigurationResult& result,
+    std::size_t line_number
+) {
+    if (suffix == "enabled") {
+        parse_bool(value, filter.enabled, result, line_number);
+        return;
+    }
+
+    if (suffix == "level") {
+        filter.enabled = true;
+        filter.has_level = parse_level(value, filter.level, result, line_number);
+        return;
+    }
+
+    if (suffix == "substring") {
+        filter.enabled = true;
+        filter.substring = value;
+        return;
+    }
+
+    add_warning(result, line_number, "unknown filter setting '" + suffix + "'");
+}
+
+void attach_filter(LogHandler& handler, const FilterConfiguration& filter) {
+    if (!filter.enabled) {
+        return;
+    }
+
+    if (filter.has_level) {
+        handler.add_filter(std::make_shared<LevelFilter>(filter.level));
+    }
+
+    if (!filter.substring.empty()) {
+        handler.add_filter(std::make_shared<SubstringFilter>(filter.substring));
+    }
+}
+
+ConfigurationContext effective_context(
+    const ConfigurationContext& base_context,
+    const LoggerConfiguration& configuration
+) {
+    ConfigurationContext context = base_context;
+    if (configuration.has_application_name) {
+        context.application_name = configuration.application_name;
+    }
+    return context;
+}
+
+void expand_configuration_templates(
+    LoggerConfiguration& configuration,
+    const ConfigurationContext& base_context,
+    ConfigurationResult& result
+) {
+    const ConfigurationContext context = effective_context(base_context, configuration);
+
+    if (configuration.has_formatter_pattern) {
+        configuration.formatter_pattern = expand_template_variables(
+            configuration.formatter_pattern,
+            context,
+            result,
+            0
+        );
+    }
+
+    if (!configuration.global_filter.substring.empty()) {
+        configuration.global_filter.substring = expand_template_variables(
+            configuration.global_filter.substring,
+            context,
+            result,
+            0
+        );
+    }
+
+    if (!configuration.console_handler.filter.substring.empty()) {
+        configuration.console_handler.filter.substring = expand_template_variables(
+            configuration.console_handler.filter.substring,
+            context,
+            result,
+            0
+        );
+    }
+
+    if (!configuration.file_handler.path.empty()) {
+        configuration.file_handler.path = expand_template_variables(
+            configuration.file_handler.path,
+            context,
+            result,
+            0
+        );
+    }
+
+    if (!configuration.file_handler.filter.substring.empty()) {
+        configuration.file_handler.filter.substring = expand_template_variables(
+            configuration.file_handler.filter.substring,
+            context,
+            result,
+            0
+        );
+    }
+}
+
+} // namespace
+
+bool ConfigurationResult::ok() const {
+    return this->errors.empty();
+}
+
+ConfigurationContext default_configuration_context() {
+    ConfigurationContext context;
+
+    char current_working_directory_buffer[4096];
+    if (getcwd(current_working_directory_buffer, sizeof(current_working_directory_buffer)) != nullptr) {
+        context.current_working_directory = current_working_directory_buffer;
+    } else {
+        context.current_working_directory = ".";
+    }
+
+    return context;
+}
+
+LoggerConfiguration parse_logger_configuration(
+    std::istream& input,
+    ConfigurationResult& result
+) {
+    return parse_logger_configuration(input, default_configuration_context(), result);
+}
+
+LoggerConfiguration parse_logger_configuration(
+    std::istream& input,
+    const ConfigurationContext& context,
+    ConfigurationResult& result
+) {
+    LoggerConfiguration configuration;
+    std::string line;
+    std::size_t line_number = 0;
+
+    while (std::getline(input, line)) {
+        ++line_number;
+
+        const std::size_t comment_position = line.find('#');
+        if (comment_position != std::string::npos) {
+            line.erase(comment_position);
+        }
+
+        line = trim(line);
+        if (line.empty()) {
+            continue;
+        }
+
+        const std::size_t separator_position = line.find('=');
+        if (separator_position == std::string::npos) {
+            add_error(result, line_number, "expected 'key = value'");
+            continue;
+        }
+
+        const std::string key = lowercase(trim(line.substr(0, separator_position)));
+        const std::string value = trim(line.substr(separator_position + 1));
+
+        if (key == "application.name") {
+            configuration.has_application_name = true;
+            configuration.application_name = value;
+        } else if (key == "logger.level") {
+            configuration.has_level = parse_level(value, configuration.level, result, line_number);
+        } else if (key == "formatter.pattern") {
+            configuration.has_formatter_pattern = true;
+            configuration.formatter_pattern = value;
+        } else if (key == "capture_stdio") {
+            parse_bool(value, configuration.capture_stdio, result, line_number);
+        } else if (key == "capture_stdout") {
+            parse_bool(value, configuration.capture_stdout, result, line_number);
+        } else if (key == "capture_stderr") {
+            parse_bool(value, configuration.capture_stderr, result, line_number);
+        } else if (key == "handlers.console.enabled") {
+            parse_bool(value, configuration.console_handler.enabled, result, line_number);
+        } else if (key == "handlers.console.stderr_for_errors") {
+            parse_bool(value, configuration.console_handler.stderr_for_errors, result, line_number);
+        } else if (key == "handlers.console.suppress_captured_streams") {
+            parse_bool(value, configuration.console_handler.suppress_captured_streams, result, line_number);
+        } else if (key == "handlers.file.enabled") {
+            parse_bool(value, configuration.file_handler.enabled, result, line_number);
+        } else if (key == "handlers.file.path") {
+            configuration.file_handler.enabled = true;
+            configuration.file_handler.path = value;
+        } else if (key == "handlers.file.append") {
+            parse_bool(value, configuration.file_handler.append, result, line_number);
+        } else if (key.find("filters.global.") == 0U) {
+            apply_filter_key(configuration.global_filter, key.substr(15), value, result, line_number);
+        } else if (key.find("handlers.console.filter.") == 0U) {
+            apply_filter_key(configuration.console_handler.filter, key.substr(24), value, result, line_number);
+        } else if (key.find("handlers.file.filter.") == 0U) {
+            apply_filter_key(configuration.file_handler.filter, key.substr(21), value, result, line_number);
+        } else {
+            add_warning(result, line_number, "unknown configuration key '" + key + "'");
+        }
+    }
+
+    expand_configuration_templates(configuration, context, result);
+
+    if (configuration.file_handler.enabled && configuration.file_handler.path.empty()) {
+        add_error(result, 0, "file handler is enabled but handlers.file.path is empty");
+    }
+
+    if (!configuration.console_handler.enabled && !configuration.file_handler.enabled) {
+        add_warning(result, 0, "no handlers were enabled; configured logger will not emit output");
+    }
+
+    return configuration;
+}
+
+LoggerConfiguration parse_logger_configuration_file(
+    const std::string& path,
+    ConfigurationResult& result
+) {
+    return parse_logger_configuration_file(path, default_configuration_context(), result);
+}
+
+LoggerConfiguration parse_logger_configuration_file(
+    const std::string& path,
+    const ConfigurationContext& context,
+    ConfigurationResult& result
+) {
+    std::ifstream input(path);
+    if (!input) {
+        add_error(result, 0, "unable to open configuration file '" + path + "'");
+        return {};
+    }
+
+    return parse_logger_configuration(input, context, result);
+}
+
+ConfigurationResult apply_logger_configuration(
+    const LoggerConfiguration& configuration,
+    Logger& logger
+) {
+    ConfigurationResult result;
+
+    try {
+        if (configuration.has_level) {
+            logger.set_level(configuration.level);
+        }
+
+        if (configuration.has_formatter_pattern) {
+            logger.set_formatter(std::make_shared<PatternFormatter>(configuration.formatter_pattern));
+        }
+
+        if (configuration.global_filter.enabled) {
+            if (configuration.global_filter.has_level) {
+                logger.add_filter(std::make_shared<LevelFilter>(configuration.global_filter.level));
+            }
+            if (!configuration.global_filter.substring.empty()) {
+                logger.add_filter(std::make_shared<SubstringFilter>(configuration.global_filter.substring));
+            }
+        }
+
+        if (configuration.console_handler.enabled) {
+            auto handler = std::make_shared<ConsoleHandler>(
+                configuration.console_handler.stderr_for_errors,
+                configuration.console_handler.suppress_captured_streams
+            );
+            attach_filter(*handler, configuration.console_handler.filter);
+            logger.add_handler(handler);
+        }
+
+        if (configuration.file_handler.enabled) {
+            auto handler = std::make_shared<FileHandler>(
+                configuration.file_handler.path,
+                configuration.file_handler.append
+            );
+            attach_filter(*handler, configuration.file_handler.filter);
+            logger.add_handler(handler);
+        }
+
+        if (configuration.capture_stdio) {
+            if (!logger.capture_stdio(configuration.capture_stdout, configuration.capture_stderr)) {
+                add_warning(result, 0, "stdio capture was requested but could not be started");
+            }
+        }
+
+        result.applied = true;
+    } catch (const std::exception& exc) {
+        add_error(result, 0, exc.what());
+    }
+
+    return result;
+}
+
+ConfigurationResult configure_global_logger_if_needed(
+    const LoggerConfiguration& configuration
+) {
+    Logger& logger = Logger::instance();
+    if (logger.has_handlers()) {
+        ConfigurationResult result;
+        result.skipped_existing_logger = true;
+        return result;
+    }
+
+    return apply_logger_configuration(configuration, logger);
+}
+
+ConfigurationResult configure_global_logger_from_stream_if_needed(
+    std::istream& input
+) {
+    return configure_global_logger_from_stream_if_needed(input, default_configuration_context());
+}
+
+ConfigurationResult configure_global_logger_from_stream_if_needed(
+    std::istream& input,
+    const ConfigurationContext& context
+) {
+    ConfigurationResult parse_result;
+    const LoggerConfiguration configuration = parse_logger_configuration(input, context, parse_result);
+    if (!parse_result.ok()) {
+        return parse_result;
+    }
+
+    ConfigurationResult apply_result = configure_global_logger_if_needed(configuration);
+    apply_result.warnings.insert(
+        apply_result.warnings.begin(),
+        parse_result.warnings.begin(),
+        parse_result.warnings.end()
+    );
+    return apply_result;
+}
+
+ConfigurationResult configure_global_logger_from_file_if_needed(
+    const std::string& path
+) {
+    return configure_global_logger_from_file_if_needed(path, default_configuration_context());
+}
+
+ConfigurationResult configure_global_logger_from_file_if_needed(
+    const std::string& path,
+    const ConfigurationContext& context
+) {
+    ConfigurationResult parse_result;
+    const LoggerConfiguration configuration = parse_logger_configuration_file(path, context, parse_result);
+    if (!parse_result.ok()) {
+        return parse_result;
+    }
+
+    ConfigurationResult apply_result = configure_global_logger_if_needed(configuration);
+    apply_result.warnings.insert(
+        apply_result.warnings.begin(),
+        parse_result.warnings.begin(),
+        parse_result.warnings.end()
+    );
+    return apply_result;
+}
+
+} // namespace owplog
