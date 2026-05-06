@@ -145,8 +145,8 @@ void owplog_logger_log_full(
 #define LOG_NAMED_WARNING(logger_name, message) LOG(OWPLOG_LOG_WARNING, logger_name, message)
 #define LOG_NAMED_ERROR(logger_name, message) LOG(OWPLOG_LOG_ERROR, logger_name, message)
 #define LOG_NAMED_DEBUG(logger_name, message) LOG(OWPLOG_LOG_DEBUG, logger_name, message)
-#define LOG_INFO(message) LOG_NAMED_INFO("owplog.c", message)
-#define LOG_WARNING(message) LOG_NAMED_WARNING("owplog.c", message)
-#define LOG_ERROR(message) LOG_NAMED_ERROR("owplog.c", message)
-#define LOG_DEBUG(message) LOG_NAMED_DEBUG("owplog.c", message)
+#define LOG_INFO(message) LOG_NAMED_INFO("owplog", message)
+#define LOG_WARNING(message) LOG_NAMED_WARNING("owplog", message)
+#define LOG_ERROR(message) LOG_NAMED_ERROR("owplog", message)
+#define LOG_DEBUG(message) LOG_NAMED_DEBUG("owplog", message)
 #endif

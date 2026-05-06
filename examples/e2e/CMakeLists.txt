@@ -70,11 +70,12 @@ if(_owplog_dependency_prefixes)
     message(STATUS "Set the CMAKE_PREFIX_PATH to ${CMAKE_PREFIX_PATH}")
 endif()
 
-add_executable(owplog_example
-    native_main.cpp
+add_executable(
+    owplog_example
+    main.cpp
     c_component.c
     cpp_component.cpp
-        threadpool.cpp
+    threadpool.cpp
 )
 
 target_include_directories(owplog_example PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -90,8 +91,7 @@ if(CMAKE_Fortran_COMPILER)
     enable_language(Fortran)
     add_library(owplog_e2e_fortran STATIC
         ${CMAKE_SOURCE_DIR}/interop/fortran/owplog_logger_mod.f90
-        #fortran_component.f90
-            example_fortran.f90
+        example_fortran.f90
     )
     target_link_libraries(owplog_example PRIVATE owplog_e2e_fortran)
     target_compile_definitions(owplog_example PRIVATE OWPLOG_E2E_HAVE_FORTRAN=1)
@@ -107,6 +107,21 @@ if(Python3_Interpreter_FOUND AND NOT pybind11_DIR)
             OUTPUT_STRIP_TRAILING_WHITESPACE
             ERROR_QUIET
             RESULT_VARIABLE _owplog_pybind11_cmake_result
+    )
+
+    set(
+        PYTHON_SCRIPTS
+        ${CMAKE_CURRENT_SOURCE_DIR}/owplog_api.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/owplog_logger.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/python_consumer.py
+    )
+
+    add_custom_command(
+        TARGET owplog_example
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${PYTHON_SCRIPTS}
+            $<TARGET_FILE_DIR:owplog_example>
     )
 
     if (_owplog_pybind11_cmake_result EQUAL 0 AND EXISTS "${_owplog_pybind11_cmake_dir}")
