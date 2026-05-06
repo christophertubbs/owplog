@@ -84,21 +84,27 @@ public:
      * @throws May propagate allocation failures when restoring default formatter.
      */
     void set_formatter(LogFormatterPtr formatter);
+
+    /**
+     * @brief Replace active formatter with a basic string formatter
+     * @param pattern The pattern string for a string pattern formatter
+     */
+    void set_formatter(std::string pattern);
     /**
      * @brief Add a sink destination.
-     * @param sink Sink instance to append.
+     * @param handler Handler instance to append.
      * @pre `sink` should be non-null for useful output.
-     * @post Sink list contains appended sink pointer.
+     * @post Handler list contains appended sink pointer.
      * @throws May propagate allocation failures when growing sink storage.
      */
-    void add_sink(LogHandlerPtr sink);
+    void add_handler(LogHandlerPtr handler);
     /**
      * @brief Remove all configured sinks.
      * @pre None.
-     * @post Sink list is empty.
+     * @post Handler list is empty.
      * @throws No intentional exceptions.
      */
-    void clear_sinks();
+    void clear_handlers();
 
     /**
      * @brief Add a process-level filter.
@@ -117,21 +123,22 @@ public:
     void clear_filters();
 
     /**
-     * @brief Attach default console sink when sink list is empty.
+     * @brief Attach default console handler when handler list is empty.
      * @pre None.
-     * @post At least one sink exists (unless allocation fails).
+     * @post At least one handler exists (unless allocation fails).
      * @throws May propagate allocation failures.
      */
     void configure_default_console();
+
     /**
-     * @brief Convenience helper to attach a file sink.
+     * @brief Convenience helper to attach a file handler.
      * @param path File output path.
      * @param append True to append, false to truncate.
      * @return True on success.
      * @pre `path` refers to a writable location for the current process.
-     * @post On success, a file sink is appended.
+     * @post On success, a file handler is appended.
      * @post On failure, logger configuration is unchanged.
-     * @throws Never throws; implementation converts sink-construction exceptions to `false`.
+     * @throws Never throws; implementation converts handler-construction exceptions to `false`.
      */
     bool add_file_sink(const std::string& path, bool append = true);
 
@@ -145,7 +152,7 @@ public:
      * @post On failure, capture is not active for newly requested streams.
      * @throws May propagate allocation failures when creating capture infrastructure.
      */
-    bool start_stdio_capture(bool capture_stdout = true, bool capture_stderr = true);
+    bool capture_stdio(bool capture_stdout = true, bool capture_stderr = true);
     /**
      * @brief Stop stream capture threads and restore descriptors.
      * @pre None.
@@ -163,12 +170,12 @@ public:
     bool stdio_capture_active() const;
     /**
      * @brief Check whether the logger currently has configured sinks.
-     * @return True when at least one sink is configured.
+     * @return True when at least one handler is configured.
      * @pre None.
      * @post Logger state is unchanged.
      * @throws No intentional exceptions.
      */
-    bool has_sinks() const;
+    bool has_handlers() const;
 
     /**
      * @brief Enqueue one log record.
@@ -197,7 +204,7 @@ public:
      * @brief Wait until queue drains and flush all sinks.
      * @pre None.
      * @post All records accepted before call completion are dispatched.
-     * @post Each configured sink has had `flush()` invoked once.
+     * @post Each configured handler has had `flush()` invoked once.
      * @throws No intentional exceptions.
      */
     void flush();
@@ -236,7 +243,7 @@ private:
     LogLevel level_;
     /** Active formatter instance. */
     LogFormatterPtr formatter_;
-    /** Active sink list. */
+    /** Active handler list. */
     std::vector<LogHandlerPtr> handlers_;
     /** Process-level filter list. */
     std::vector<LogFilterPtr> filters_;
@@ -244,9 +251,9 @@ private:
     /** Mutex protecting queue state and worker lifecycle fields. */
     std::mutex queue_mutex_;
     /** Condition variable waking worker on enqueue/shutdown. */
-    std::condition_variable queue_cv_;
+    std::condition_variable queue_signal_;
     /** Condition variable used by flush waiters. */
-    std::condition_variable flush_cv_;
+    std::condition_variable flush_signal_;
     /** Pending queue consumed by worker thread. */
     std::deque<LogRecord> queue_;
     /** Dedicated asynchronous worker thread. */

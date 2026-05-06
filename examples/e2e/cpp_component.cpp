@@ -1,20 +1,19 @@
 #include "cpp_component.hpp"
-
-#include "owplog/logger.hpp"
-
 #include "printf.h"
+#include <cstdio>
+
+#include "owplog/c_api.h"
+
 void cpp_component_emit_logs() {
-    owplog::Logger::instance().log(
-        owplog::LogLevel::Info,
-        "message from native C++ component",
-        "e2e.cpp",
-        OWPLOG_SOURCE_LOCATION,
-        owplog::LogOrigin::Application,
-        -1,
-        "cpp");
+    LOG_NAMED_INFO("cpp_component.cpp", "message from native C++ component");
 }
 
 
 void cpp_echo_messages() {
-    fprintf(stderr, "Here is a message from e2e.cpp that wasn't sent to a logger");
+    std::fprintf(
+        stderr,
+        "Here is an error from %s that wasn't sent to a logger on line %d\n",
+        __FILE__,
+        __LINE__
+    );
 }

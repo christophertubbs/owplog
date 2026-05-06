@@ -51,12 +51,12 @@ TEST(LoggerTest, HandlesConcurrentLogging) {
     // Shared singleton logger under test.
     auto& logger = owplog::Logger::instance();
     logger.shutdown();
-    logger.clear_sinks();
+    logger.clear_handlers();
     logger.clear_filters();
     logger.set_level(owplog::LogLevel::Trace);
 
     auto sink = std::make_shared<CountingSink>();
-    logger.add_sink(sink);
+    logger.add_handler(sink);
 
     // Number of producer threads used for concurrency coverage.
     constexpr int thread_count = 8;
@@ -87,12 +87,12 @@ TEST(LoggerTest, HandlesConcurrentLogging) {
 TEST(LoggerTest, AppliesLevelFilter) {
     auto& logger = owplog::Logger::instance();
     logger.shutdown();
-    logger.clear_sinks();
+    logger.clear_handlers();
     logger.clear_filters();
     logger.set_level(owplog::LogLevel::Trace);
 
     auto sink = std::make_shared<CountingSink>();
-    logger.add_sink(sink);
+    logger.add_handler(sink);
     logger.add_filter(std::make_shared<owplog::LevelFilter>(owplog::LogLevel::Warning));
 
     logger.log(owplog::LogLevel::Info, "not-kept", "test");
@@ -106,7 +106,7 @@ TEST(LoggerTest, AppliesLevelFilter) {
 TEST(LoggerTest, CApiWritesToFile) {
     auto& logger = owplog::Logger::instance();
     logger.shutdown();
-    logger.clear_sinks();
+    logger.clear_handlers();
     logger.clear_filters();
     logger.set_level(owplog::LogLevel::Trace);
     logger.set_formatter(std::make_shared<owplog::PatternFormatter>("%f:%l %F rank=%r lang=%g %m"));
@@ -141,7 +141,7 @@ TEST(LoggerTest, CApiWritesToFile) {
 TEST(LoggerTest, CapturesStdout) {
     auto& logger = owplog::Logger::instance();
     logger.shutdown();
-    logger.clear_sinks();
+    logger.clear_handlers();
     logger.clear_filters();
     logger.set_level(owplog::LogLevel::Trace);
 
@@ -149,7 +149,7 @@ TEST(LoggerTest, CapturesStdout) {
     const auto path = temp_log_path("owplog_capture");
     ASSERT_TRUE(logger.add_file_sink(path.string(), false));
 
-    ASSERT_TRUE(logger.start_stdio_capture(true, false));
+    ASSERT_TRUE(logger.capture_stdio(true, false));
     std::printf("captured-line-from-stdout\n");
     std::fflush(stdout);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));

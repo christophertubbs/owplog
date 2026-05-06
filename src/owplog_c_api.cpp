@@ -30,7 +30,7 @@ owplog::LogLevel as_level(int level) {
  * @return True when records can be forwarded to configured sinks.
  */
 bool has_upstream_logger() {
-    return owplog::Logger::instance().has_sinks();
+    return owplog::Logger::instance().has_handlers();
 }
 
 /**
@@ -214,6 +214,29 @@ void owplog_logger_log_sublogger(int level, owplog_sublogger_handle sublogger_ha
         {},
         -1,
         "");
+}
+
+void owplog_logger_log_full(
+    int level,
+    const char* logger_name,
+    const char* message,
+    const char* language,
+    const char* filename,
+    int line_number,
+    const char* function_name,
+    int rank
+) {
+    const std::string safe_logger_name = (logger_name != nullptr && *logger_name != '\0') ? logger_name : "owplog.c";
+    const std::string safe_message = (message != nullptr) ? message : "";
+    const owplog::SourceLocation source{filename, line_number, function_name};
+    submit_or_fallback(
+        as_level(level),
+        safe_logger_name,
+        safe_message,
+        source,
+        rank,
+        language
+    );
 }
 
 } // extern "C"

@@ -3,6 +3,7 @@
 #include "owplog/c_api.h"
 
 void c_component_emit_logs(void) {
+    LOG_NAMED_INFO("e2e.c", "Message from C component");
     owplog_logger_log(OWPLOG_LOG_INFO, "e2e.c", "message from C component");
 
     const owplog_sublogger_handle h = owplog_logger_add_sublogger("e2e.c.sublogger");
