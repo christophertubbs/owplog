@@ -10,13 +10,6 @@
 extern "C" {
 #endif
 
-typedef enum owplog_backend_state
-{
-    OWPLOG_BACKEND_UNAVAILABLE = 0,
-    OWPLOG_BACKEND_ACCEPTING = 1,
-    OWPLOG_BACKEND_STOPPING = 2
-} owplog_backend_state;
-
 /**
  * @brief Log levels accepted by the owplog C API.
  */
@@ -62,16 +55,6 @@ typedef struct owplog_log_meta {
     /** Optional rank metadata (-1 when unknown). */
     int rank;
 } owplog_log_meta;
-
-typedef owplog_backend_state (*owplog_backend_get_state_fn)(void *context);
-typedef int (*owplog_backend_submit_fn)(
-    void *context,
-    int level,
-    const char *logger_name,
-    const char *message,
-    const owplog_log_meta *meta
-);
-typedef void (*owplog_backend_flush_fn)(void *context);
 
 /**
  * @brief Register a named sublogger for handle-based logging.
