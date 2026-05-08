@@ -109,21 +109,6 @@ if(Python3_Interpreter_FOUND AND NOT pybind11_DIR)
             RESULT_VARIABLE _owplog_pybind11_cmake_result
     )
 
-    set(
-        PYTHON_SCRIPTS
-        ${CMAKE_CURRENT_SOURCE_DIR}/owplog_api.py
-        ${CMAKE_CURRENT_SOURCE_DIR}/owplog_logger.py
-        ${CMAKE_CURRENT_SOURCE_DIR}/python_consumer.py
-    )
-
-    add_custom_command(
-        TARGET owplog_example
-        POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${PYTHON_SCRIPTS}
-            $<TARGET_FILE_DIR:owplog_example>
-    )
-
     if (_owplog_pybind11_cmake_result EQUAL 0 AND EXISTS "${_owplog_pybind11_cmake_dir}")
         set(pybind11_DIR "${_owplog_pybind11_cmake_dir}")
         message(STATUS "pybind11 found and had its directory set to: ${pybind11_DIR}")
@@ -141,6 +126,23 @@ if(pybind11_FOUND AND Python3_Development.Embed_FOUND)
     target_link_libraries(owplog_example PRIVATE pybind11::embed)
     target_compile_definitions(owplog_example PRIVATE OWPLOG_E2E_HAVE_PYTHON_EMBED=1)
     message(STATUS "pybind11 Found and Python3 Development.Embed found and attached.")
+
+    set(
+        PYTHON_SCRIPTS
+        ${CMAKE_CURRENT_SOURCE_DIR}/owplog_api.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/owplog_logger.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/python_consumer.py
+    )
+
+    add_custom_command(
+        TARGET owplog_example
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${PYTHON_SCRIPTS}
+            $<TARGET_FILE_DIR:owplog_example>
+        COMMENT "Copying Python Scripts next to the example executable"
+        VERBATIM
+    )
 else()
     message(STATUS "Python embed example disabled:")
     message(STATUS "    Python3_EXECUTABLE='${Python3_EXECUTABLE}'")
