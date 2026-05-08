@@ -1,13 +1,65 @@
-#include "c_component.h"
-#include "cpp_component.hpp"
-#include "threadpool.cpp"
+#include <stdexcept>
 #include <algorithm>
 #include <deque>
 #include <random>
+#include <iostream>
+#include <filesystem>
 
 #include "owplog/logger.hpp"
+#include "c_component.h"
+#include "cpp_component.hpp"
+#include "threadpool.cpp"
 
-#include <iostream>
+#if defined(__linux__)
+    #include <unistd.h>
+#elif defined(__APPLE__)
+    #include <mach-o/dyld.h>
+#else
+        #error "Unsupported platform only __linux__ and __APPLE__ are supported"
+#endif
+
+std::filesystem::path get_executable_path() {
+    #if defined(__linux__)
+    std::size_t path_buffer_size = 1024;
+
+    while (true) {
+        std::vector<char> path_buffer(path_buffer_size, '\0');
+        const ssize_t character_count = readlink(
+            "/proc/self/exe",
+            path_buffer.data(),
+            path_buffer.size()
+        );
+        if (character_count < 0) {
+            throw std::runtime_error("Failed to read /proc/self/exe");
+        }
+        auto resolved_character_count = static_cast<std::size_t>(character_count);
+        if (resolved_character_count < path_buffer_size) {
+            return std::filesystem::path(
+                std::string(path_buffer.data(), resolved_character_count)
+            );
+        }
+        path_buffer_size *= 2;
+    }
+    #else
+    uint32_t path_buffer_size = 0;
+
+    _NSGetExecutablePath(nullptr, &path_buffer_size);
+
+    std::vector<char> path_buffer(path_buffer_size, '\0');
+
+    const int result = _NSGetExecutablePath(path_buffer.data(), &path_buffer_size);
+
+    if (result != 0) {
+        throw std::runtime_error("Failed to get executable path");
+    }
+
+    return std::filesystem::path(path_buffer.data());
+    #endif
+}
+
+std::filesystem::path get_executable_directory() {
+    return get_executable_path().parent_path();
+}
 
 
 #if defined(OWPLOG_E2E_HAVE_FORTRAN)
@@ -20,46 +72,60 @@ void do_fortran_work() {
 
 #if defined(OWPLOG_E2E_HAVE_PYTHON_EMBED)
 #include <pybind11/embed.h>
+#include <string>
+#include <vector>
+
 namespace py = pybind11;
 
-const std::string PYTHON_EXAMPLE_DIRECTORY = "../../../examples/e2e";
-const std::string PYTHON_FILE_NAME = "../../../examples/e2e/python_consumer.py";
 const std::string DEFAULT_PYTHON_MODULE_NAME = "python_consumer";
 const std::string DEFAULT_PYTHON_FUNCTION_NAME = "main";
 
 class PythonScriptRunner {
-public:
-    static std::function<void()> create_callable(
-        const std::string& module_name = DEFAULT_PYTHON_MODULE_NAME,
-        const std::string& function_name = DEFAULT_PYTHON_FUNCTION_NAME
-    ) {
-        auto runner = std::make_shared<PythonScriptRunner>(module_name, function_name);
-        return [runner]() {
-            runner->run();
-        };
-    }
-    explicit PythonScriptRunner(
-        const std::string& module_name = DEFAULT_PYTHON_MODULE_NAME,
-        const std::string& function_name = DEFAULT_PYTHON_FUNCTION_NAME
-    ) {
-        py::gil_scoped_acquire acquire;
-        this->module_ = py::module_::import(module_name.c_str());
-        this->function_ = this->module_.attr(function_name.c_str());
-    }
+    public:
+        static std::function<void()> create_callable(
+            const std::string& module_name = DEFAULT_PYTHON_MODULE_NAME,
+            const std::string& function_name = DEFAULT_PYTHON_FUNCTION_NAME
+        ) {
+            auto runner = std::make_shared<PythonScriptRunner>(module_name, function_name);
+            return [runner]() {
+                runner->run();
+            };
+        }
+        explicit PythonScriptRunner(
+            const std::string& module_name = DEFAULT_PYTHON_MODULE_NAME,
+            const std::string& function_name = DEFAULT_PYTHON_FUNCTION_NAME
+        ) {
+            py::gil_scoped_acquire acquire;
+            this->module_ = py::module_::import(module_name.c_str());
+            this->function_ = this->module_.attr(function_name.c_str());
+        }
 
-    ~PythonScriptRunner() = default;
+        ~PythonScriptRunner() {
+            this->close();
+        }
 
-    void run() const {
-        py::gil_scoped_acquire acquired_gil{};
-        py::object result = this->function_();
-    }
+        void close() {
+            if (Py_IsInitialized()) {
+                this->function_ = py::object{};
+                this->module_ = py::object{};
+            } else {
+                // The interpreter is already gone. Releasing avoids py::object destructors trying to DECREF.
+                // This leaks resources, but its better than crashing
+                static_cast<void>(this->function_.release());
+                static_cast<void>(this->module_.release());
+            }
+        }
+        void run() const {
+            py::gil_scoped_acquire acquired_gil{};
+            py::object result = this->function_();
+        }
 
-    void operator()() const {
-        this->run();
-    }
-private:
-    py::object module_;
-    py::object function_;
+        void operator()() const {
+            this->run();
+        }
+    private:
+        py::object module_;
+        py::object function_;
 };
 
 PYBIND11_EMBEDDED_MODULE(owplog_native_bridge, m) {
@@ -109,8 +175,8 @@ const std::string LOG_PATTERN = "%T [%L] (%N) %f:%l %F rank=%r lang=%g %m";
 constexpr owplog::LogLevel LOG_LEVEL = owplog::LogLevel::Trace;
 constexpr size_t JOB_COUNT_PER_TYPE = 1000;
 const std::string APPLICATION_NAME = "End2End";
-const std::string ROOT_PATH = "/DMOD/christopher.tubbs/owplog/";
-const std::string LOG_PATH = ROOT_PATH + APPLICATION_NAME + ".log";
+const std::filesystem::path ROOT_PATH = std::filesystem::current_path();
+const std::filesystem::path LOG_PATH = ROOT_PATH / (APPLICATION_NAME + ".log");
 constexpr bool WRITE_TO_CONSOLE = true;
 constexpr bool APPEND_TO_LOG = false;
 
@@ -203,7 +269,7 @@ int main() {
     std::cout << "[INFO] Python embed dependencies detected; running Python component.\n";
     py::scoped_interpreter guard{};
     py::module_ sys = py::module::import("sys");
-    sys.attr("path").attr("insert")(0, PYTHON_EXAMPLE_DIRECTORY);
+    sys.attr("path").attr("insert")(0, get_executable_directory().string());
     auto python_script_runner = PythonScriptRunner::create_callable();
     available_jobs.emplace_back(python_script_runner);
     available_jobs.emplace_back(call_loose_python);
