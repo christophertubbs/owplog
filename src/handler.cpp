@@ -44,6 +44,13 @@ bool LogHandler::should_log(const LogRecord& record) const {
  */
 void LogHandler::flush() {}
 
+void LogHandler::set_maximum_buffer_size(const uint32_t size) {
+    if (size == 0) {
+        throw std::invalid_argument("Maximum buffer size cannot be zero");
+    }
+    this->maximum_buffer_size_ = size;
+}
+
 /**
  * @brief Construct console sink behavior.
  * @param stderr_for_errors Route ERROR+ records to stderr.
@@ -106,11 +113,7 @@ void ConsoleHandler::write(const LogRecord& record, const std::string& formatted
 /**
  * @brief Flush stdout and stderr.
  */
-void ConsoleHandler::flush() {
-    std::lock_guard lock(this->io_mutex_);
-    ::fdatasync(this->stdout_descriptor_);
-    ::fdatasync(this->stderr_descriptor_);
-}
+void ConsoleHandler::flush() {}
 
 /**
  * @brief Construct file sink stream.
@@ -131,8 +134,15 @@ FileHandler::FileHandler(const std::string& path, bool append) {
  * @param formatted Formatted record text.
  */
 void FileHandler::write(const LogRecord&, const std::string& formatted) {
-    std::lock_guard lock(this->file_mutex_);
-    this->stream_ << formatted << '\n';
+    int buffer_size;
+    {
+        std::lock_guard lock(this->file_mutex_);
+        this->buffer_.append(formatted).append("\n");
+        buffer_size = this->buffer_.size();
+    }
+    if (buffer_size >= this->maximum_buffer_size_) {
+        this->flush();
+    }
 }
 
 /**
@@ -140,6 +150,8 @@ void FileHandler::write(const LogRecord&, const std::string& formatted) {
  */
 void FileHandler::flush() {
     std::lock_guard lock(this->file_mutex_);
+    this->stream_ << this->buffer_;
+    this->buffer_.clear();
     this->stream_.flush();
 }
 
