@@ -3,11 +3,12 @@
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
+#include <filesystem>
 
 namespace owplog {
 
 /**
- * @brief Add sink-local filter.
+ * @brief Add handler-local filter.
  * @param filter Filter to append.
  */
 void LogHandler::add_filter(LogFilterPtr filter) {
@@ -16,15 +17,19 @@ void LogHandler::add_filter(LogFilterPtr filter) {
 }
 
 /**
- * @brief Remove all sink-local filters.
+ * @brief Remove all handler-local filters.
  */
 void LogHandler::clear_filters() {
     std::lock_guard lock(this->filter_mutex_);
     this->filters_.clear();
 }
 
+    void LogHandler::set_error_policy(ErrorPolicy policy) {
+        this->error_policy_.set(policy);
+    }
+
 /**
- * @brief Evaluate sink-local filters for a record.
+ * @brief Evaluate handler-local filters for a record.
  * @param record Record under evaluation.
  * @return True when all local filters allow record.
  */
@@ -52,7 +57,7 @@ void LogHandler::set_maximum_buffer_size(const uint32_t size) {
 }
 
 /**
- * @brief Construct console sink behavior.
+ * @brief Construct console handler behavior.
  * @param stderr_for_errors Route ERROR+ records to stderr.
  * @param suppress_captured_streams Skip output for captured stdio records.
  */
@@ -107,7 +112,12 @@ void ConsoleHandler::write(const LogRecord& record, const std::string& formatted
         next_byte += written_byte_count;
         remaining_byte_count -= static_cast<std::size_t>(written_byte_count);
     }
-    ::write(target_descriptor, "\n", 1);
+
+    const ssize_t characters_written = ::write(target_descriptor, "\n", 1);
+
+    if (characters_written != 1) {
+        throw std::runtime_error("Unable to write newline to console");
+    }
 }
 
 /**
@@ -115,22 +125,22 @@ void ConsoleHandler::write(const LogRecord& record, const std::string& formatted
  */
 void ConsoleHandler::flush() {}
 
-/**
- * @brief Construct file sink stream.
- * @param path Log output path.
- * @param append Append mode when true, truncate when false.
- */
-FileHandler::FileHandler(const std::string& path, bool append) {
-    // Stream mode selected from append/truncate behavior.
-    const auto mode = append ? (std::ios::out | std::ios::app) : (std::ios::out | std::ios::trunc);
-    this->stream_.open(path, mode);
-    if (!this->stream_) {
-        throw std::runtime_error("Unable to open log file: " + path);
+    /**
+     * @brief Construct file handler stream.
+     * @param path Log output path.
+     * @param append Append mode when true, truncate when false.
+     */
+    FileHandler::FileHandler(const std::filesystem::path& path, bool append) {
+        // Stream mode selected from append/truncate behavior.
+        const auto mode = append ? (std::ios::out | std::ios::app) : (std::ios::out | std::ios::trunc);
+        this->stream_.open(path, mode);
+        if (!this->stream_) {
+            throw std::runtime_error(std::string("Unable to open log file: ") + path.string());
+        }
     }
-}
 
 /**
- * @brief Write one formatted line to file sink.
+ * @brief Write one formatted line to file handler.
  * @param formatted Formatted record text.
  */
 void FileHandler::write(const LogRecord&, const std::string& formatted) {
@@ -146,7 +156,7 @@ void FileHandler::write(const LogRecord&, const std::string& formatted) {
 }
 
 /**
- * @brief Flush file sink stream.
+ * @brief Flush file handler stream.
  */
 void FileHandler::flush() {
     std::lock_guard lock(this->file_mutex_);
