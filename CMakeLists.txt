@@ -17,6 +17,7 @@ add_library(owplog STATIC
     src/formatter.cpp
     src/logger.cpp
         src/handler.cpp
+    include/owplog/utility.hpp
 )
 add_library(OWPLOG::owplog ALIAS owplog)
 
@@ -28,7 +29,9 @@ target_include_directories(owplog
 target_link_libraries(owplog PUBLIC Threads::Threads)
 
 if(OWPLOG_BUILD_SHARED_C_API)
-    add_library(owplog_c SHARED src/owplog_c_api.cpp)
+    add_library(owplog_c SHARED src/owplog_c_api.cpp
+        include/owplog/utility.hpp
+    )
     add_library(OWPLOG::owplog_c ALIAS owplog_c)
     target_include_directories(owplog_c PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -52,7 +55,9 @@ if(OWPLOG_BUILD_TESTS)
         FetchContent_MakeAvailable(googletest)
     endif()
 
-    add_executable(owplog_tests tests/logger_tests.cpp)
+    add_executable(owplog_tests tests/logger_tests.cpp
+        include/owplog/utility.hpp
+    )
     target_link_libraries(owplog_tests PRIVATE owplog GTest::gtest_main)
     if(TARGET owplog_c)
         target_link_libraries(

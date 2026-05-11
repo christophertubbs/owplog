@@ -9,14 +9,15 @@
 #include <filesystem>
 
 #include "owplog/filter.hpp"
+#include "owplog/utility.hpp"
 
 #include <fstream>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <unistd.h>
 #include <vector>
+#include <atomic>
 
 namespace owplog {
 
@@ -27,6 +28,13 @@ namespace owplog {
  */
 class LogHandler {
     public:
+        enum class ErrorPolicy {
+            Ignore,
+            Throw,
+            Count,
+            Disable
+        };
+
         /** Virtual destructor for polymorphic handler deletion. */
         virtual ~LogHandler() = default;
 
@@ -45,6 +53,7 @@ class LogHandler {
          * @throws No intentional exceptions.
          */
         void clear_filters();
+
         /**
          * @brief Evaluate handler-local filters.
          * @param record Record under evaluation.
@@ -56,6 +65,8 @@ class LogHandler {
         bool should_log(const LogRecord& record) const;
 
         void set_maximum_buffer_size(uint32_t size);
+
+        void set_error_policy(ErrorPolicy policy);
 
         /**
          * @brief Write one preformatted record.
@@ -76,15 +87,19 @@ class LogHandler {
 
     protected:
         /** The maximum number of bytes that may be written prior to flushing */
-        uint32_t maximum_buffer_size_ = 1024 * 1024;
+        std::atomic_int maximum_buffer_size_ = 1024 * 1024;
         /** A buffer to write to prior to flushing */
         std::string buffer_;
+
+        void handle_error(const std::string& message);
 
     private:
         /** Mutex protecting handler-local filter list. */
         mutable std::mutex filter_mutex_;
         /** Handler-local filters applied before write. */
         std::vector<LogFilterPtr> filters_;
+        utility::Protected<ErrorPolicy> error_policy_{ErrorPolicy::Ignore};
+        std::atomic_int error_count_ = 0;
 };
 
 /**
@@ -115,8 +130,8 @@ private:
     bool suppress_captured_streams_;
     /** Mutex protecting console stream writes and flushes. */
     std::mutex io_mutex_;
-    int stdout_descriptor_ = STDOUT_FILENO;
-    int stderr_descriptor_ = STDERR_FILENO;
+    std::atomic_int stdout_descriptor_{STDOUT_FILENO};
+    std::atomic_int stderr_descriptor_{STDERR_FILENO};
 };
 
 /**
@@ -132,13 +147,13 @@ public:
          * @post On success, file stream is open.
          * @throws `std::runtime_error` when file open fails.
          */
-        explicit FileHandler(const std::string& path, bool append = true);
-        explicit FileHandler(const std::filesystem::path& path, bool append = true);
-        explicit FileHandler(const char* path, bool append = true);
-    /** @copydoc LogHandler::write */
-    void write(const LogRecord& record, const std::string& formatted) override;
-    /** @copydoc LogHandler::flush */
-    void flush() override;
+        FileHandler(const std::string& path, bool append = true) : FileHandler(std::filesystem::path(path), append) {}
+        FileHandler(const std::filesystem::path& path, bool append = true);
+        FileHandler(const char* path, bool append = true) : FileHandler(std::filesystem::path(path), append) {};
+        /** @copydoc LogHandler::write */
+        void write(const LogRecord& record, const std::string& formatted) override;
+        /** @copydoc LogHandler::flush */
+        void flush() override;
 
 private:
     /** Mutex protecting file stream writes and flushes. */
