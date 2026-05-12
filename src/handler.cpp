@@ -12,44 +12,79 @@ namespace owplog {
  * @param filter Filter to append.
  */
 void LogHandler::add_filter(LogFilterPtr filter) {
-    std::lock_guard lock(this->filter_mutex_);
     this->filters_.push_back(std::move(filter));
 }
 
-/**
- * @brief Remove all handler-local filters.
- */
-void LogHandler::clear_filters() {
-    std::lock_guard lock(this->filter_mutex_);
-    this->filters_.clear();
-}
+    /**
+     * @brief Remove all handler-local filters.
+     */
+    void LogHandler::clear_filters() {
+        this->filters_.clear();
+    }
 
     void LogHandler::set_error_policy(ErrorPolicy policy) {
         this->error_policy_.set(policy);
     }
 
-/**
- * @brief Evaluate handler-local filters for a record.
- * @param record Record under evaluation.
- * @return True when all local filters allow record.
- */
-bool LogHandler::should_log(const LogRecord& record) const {
-    std::lock_guard lock(filter_mutex_);
-    return std::all_of(
-        this->filters_.begin(),
-        this->filters_.end(),
-        [&record](const auto& filter) {
-            return !filter || filter->allow(record);
-        }
-    );
-}
+    /**
+     * @brief Evaluate handler-local filters for a record.
+     * @param record Record under evaluation.
+     * @return True when all local filters allow record.
+     */
+    bool LogHandler::should_log(const LogRecord& record) const {
+        return this->is_enabled() && this->filters_.all_of(
+            [&record](const auto& filter) {
+                return !filter || filter->allow(record);
+            }
+        );
+    }
 
-/**
+    void LogHandler::enable() {
+        this->enabled_ = true;
+    }
+
+    void LogHandler::disable() {
+        this->enabled_ = false;
+    }
+
+    void LogHandler::handle_error(const std::string &message) {
+        switch (this->error_policy_.read_copy()) {
+            case ErrorPolicy::Count:
+                ++this->error_count_;
+                if (this->error_count_ >= this->error_limit_) {
+                    throw std::runtime_error(message);
+                }
+                break;
+            case ErrorPolicy::Throw:
+                throw std::runtime_error(message);
+            case ErrorPolicy::Disable:
+                this->disable();
+                break;
+
+            case ErrorPolicy::Ignore:
+            default:
+                break;
+        }
+    }
+
+    void LogHandler::set_error_limit(std::size_t limit) {
+        this->error_limit_ = limit;
+    }
+
+    void LogHandler::reset_error_count() {
+        this->error_count_ = 0;
+    }
+
+    bool LogHandler::is_enabled() const {
+        return this->enabled_;
+    }
+
+    /**
  * @brief Default no-op flush implementation.
  */
 void LogHandler::flush() {}
 
-void LogHandler::set_maximum_buffer_size(const uint32_t size) {
+void LogHandler::set_maximum_buffer_size(const std::size_t size) {
     if (size == 0) {
         throw std::invalid_argument("Maximum buffer size cannot be zero");
     }
@@ -120,6 +155,14 @@ void ConsoleHandler::write(const LogRecord& record, const std::string& formatted
     }
 }
 
+    void ConsoleHandler::set_stderr_descriptor(const int descriptor) {
+        this->stderr_descriptor_ = descriptor;
+    }
+
+    void ConsoleHandler::set_stdout_descriptor(const int descriptor) {
+        this->stdout_descriptor_ = descriptor;
+    }
+
 /**
  * @brief Flush stdout and stderr.
  */
@@ -144,7 +187,7 @@ void ConsoleHandler::flush() {}
  * @param formatted Formatted record text.
  */
 void FileHandler::write(const LogRecord&, const std::string& formatted) {
-    int buffer_size;
+    std::size_t buffer_size;
     {
         std::lock_guard lock(this->file_mutex_);
         this->buffer_.append(formatted).append("\n");
