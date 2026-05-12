@@ -366,16 +366,16 @@ Logger::Logger() :
     }
 
     /** @brief Add file sink and convert exceptions to boolean status. */
-    bool Logger::add_file_sink(const std::string& path, bool append) {
-        return this->add_file_sink(std::filesystem::path(path), append);
+    bool Logger::add_file_handler(const std::string& path, bool append) {
+        return this->add_file_handler(std::filesystem::path(path), append);
     }
 
     /** @brief Add file sink and convert exceptions to boolean status. */
-    bool Logger::add_file_sink(const char* path, bool append) {
-        return this->add_file_sink(std::filesystem::path(path), append);
+    bool Logger::add_file_handler(const char* path, bool append) {
+        return this->add_file_handler(std::filesystem::path(path), append);
     }
 
-    bool Logger::add_file_sink(const std::filesystem::path& path, bool append) {
+    bool Logger::add_file_handler(const std::filesystem::path& path, bool append) {
         try {
             if (!std::filesystem::exists(path.parent_path())) {
                 throw std::filesystem::filesystem_error(

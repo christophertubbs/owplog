@@ -16,7 +16,6 @@
 #include <mutex>
 #include <string>
 #include <unistd.h>
-#include <vector>
 #include <atomic>
 
 namespace owplog {
@@ -32,7 +31,9 @@ class LogHandler {
             Ignore,
             Throw,
             Count,
-            Disable
+            Disable,
+            Stderr,
+            Stdout
         };
 
         /** Virtual destructor for polymorphic handler deletion. */
@@ -64,7 +65,7 @@ class LogHandler {
          */
         bool should_log(const LogRecord& record) const;
 
-        void set_maximum_buffer_size(uint32_t size);
+        void set_maximum_buffer_size(std::size_t size);
 
         void set_error_policy(ErrorPolicy policy);
 
@@ -84,22 +85,28 @@ class LogHandler {
          * @throws Implementation-defined I/O exceptions if enabled.
          */
         virtual void flush();
+        bool is_enabled() const;
+        void enable();
+        void disable();
+        void set_error_limit(std::size_t limit);
 
     protected:
+        void reset_error_count();
+
         /** The maximum number of bytes that may be written prior to flushing */
-        std::atomic_int maximum_buffer_size_ = 1024 * 1024;
+        std::atomic<std::size_t> maximum_buffer_size_ = 1024 * 1024;
         /** A buffer to write to prior to flushing */
         std::string buffer_;
 
         void handle_error(const std::string& message);
-
-    private:
         /** Mutex protecting handler-local filter list. */
         mutable std::mutex filter_mutex_;
         /** Handler-local filters applied before write. */
-        std::vector<LogFilterPtr> filters_;
+        utility::ProtectedVector<LogFilterPtr> filters_;
         utility::Protected<ErrorPolicy> error_policy_{ErrorPolicy::Ignore};
-        std::atomic_int error_count_ = 0;
+        std::atomic<std::size_t> error_count_ = 0;
+        std::atomic<bool> enabled_ = true;
+        std::atomic<std::size_t> error_limit_ = 5;
 };
 
 /**
@@ -130,8 +137,8 @@ private:
     bool suppress_captured_streams_;
     /** Mutex protecting console stream writes and flushes. */
     std::mutex io_mutex_;
-    std::atomic_int stdout_descriptor_{STDOUT_FILENO};
-    std::atomic_int stderr_descriptor_{STDERR_FILENO};
+    std::atomic<std::size_t> stdout_descriptor_{STDOUT_FILENO};
+    std::atomic<std::size_t> stderr_descriptor_{STDERR_FILENO};
 };
 
 /**

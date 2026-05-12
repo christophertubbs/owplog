@@ -13,40 +13,32 @@
 #include <utility>
 #include <mutex>
 #include <cstddef>
+#include <deque>
+#include <functional>
 
 namespace owplog::utility {
     template<typename ValueType>
-    struct IsProtectedNumeric : std::integral_constant<
-        bool,
-        std::is_arithmetic_v<ValueType> &&
-        !std::is_same_v<ValueType, bool> &&
-        !std::is_same_v<ValueType, char> &&
-        !std::is_same_v<ValueType, signed char> &&
-        !std::is_same_v<ValueType, unsigned char>
-    > {};
-
-    template<typename ValueType>
-    class ProtectedBase {
+    class Protected {
         public:
-            explicit ProtectedBase(ValueType value) : value_(std::move(value)) {}
-            virtual ~ProtectedBase() = default;
-            ProtectedBase(const ProtectedBase& other) {
-                ValueType copy = other.read_copy();
-                std::lock_guard<std::shared_mutex> lock(this->lock_);
-                this->value_ = copy;
-            };
-            ProtectedBase& operator=(const ProtectedBase& other) {
+            Protected() = default;
+            explicit Protected(ValueType value) : value_(std::move(value)) {}
+            ~Protected() = default;
+            Protected(const Protected& other) : value_(other.read_copy()) {};
+            Protected& operator=(const Protected& other) {
+                if (this == &other) {
+                    return *this;
+                }
                 ValueType copy = other.read_copy();
                 std::lock_guard<std::shared_mutex> lock(this->lock_);
                 this->value_ = copy;
                 return *this;
             };
-            ProtectedBase& operator=(const ValueType& other) {
+            Protected& operator=(const ValueType& other) {
                 std::lock_guard<std::shared_mutex> lock(this->lock_);
                 this->value_ = other;
                 return *this;
             }
-            ProtectedBase& operator=(ValueType&& other) {
+            Protected& operator=(ValueType&& other) {
                 std::lock_guard<std::shared_mutex> lock(this->lock_);
                 this->value_ = std::move(other);
                 return *this;
@@ -72,97 +64,99 @@ namespace owplog::utility {
             ValueType value_;
     };
 
-    template<typename ValueType, bool IsNumericValue = IsProtectedNumeric<ValueType>::value>
-    class Protected;
-
     template<typename ValueType>
-    class Protected<ValueType, false> : public ProtectedBase<ValueType> {
+    class ProtectedDeque {
         public:
-            using ProtectedBase<ValueType>::ProtectedBase;
-            using ProtectedBase<ValueType>::operator=;
-    };
+            ProtectedDeque() = default;
+            ~ProtectedDeque() = default;
+            explicit ProtectedDeque(std::initializer_list<ValueType> initial_data) : data_(initial_data.begin(), initial_data.end()) {}
+            explicit ProtectedDeque(std::deque<ValueType> initial_data) : data_(std::move(initial_data)) {}
 
-    template<typename ValueType>
-    class Protected<ValueType, true> : public ProtectedBase<ValueType> {
-        public:
-            using ProtectedBase<ValueType>::ProtectedBase;
-            using ProtectedBase<ValueType>::operator=;
-
-            ValueType increment(ValueType amount = ValueType{1}) {
-                std::lock_guard<std::shared_mutex> lock(this->lock_);
-                this->value_ += amount;
-                return this->value_;
-            }
-
-            ValueType decrement(ValueType amount = ValueType{1}) {
-                std::lock_guard<std::shared_mutex> lock(this->lock_);
-                this->value_ -= amount;
-                return this->value_;
+            [[nodiscard]] std::size_t size() const {
+                std::shared_lock lock(this->lock_);
+                return this->data_.size();
             };
 
-            ValueType operator/(ValueType other) const {
+            [[nodiscard]] std::size_t max_size() const {
                 std::shared_lock lock(this->lock_);
-                return this->value_ / other;
+                return this->data_.max_size();
             }
 
-            ValueType operator+(ValueType other) const {
+            [[nodiscard]] bool empty() const {
                 std::shared_lock lock(this->lock_);
-                return this->value_ + other;
+                return this->data_.empty();
+            }
+
+            void clear() {
+                std::unique_lock lock(this->lock_);
+                this->data_.clear();
             };
 
-            ValueType operator-(ValueType other) const {
-                std::shared_lock lock(this->lock_);
-                return this->value_ - other;
+            void push_back(const ValueType& value) {
+                std::unique_lock lock(this->lock_);
+                this->data_.push_back(value);
             }
 
-            ValueType operator*(ValueType other) const {
-                std::shared_lock lock(this->lock_);
-                return this->value_ * other;
+            void push_back(ValueType&& value) {
+                std::unique_lock lock(this->lock_);
+                this->data_.push_back(std::move(value));
             }
 
-            ValueType operator++() {
-                return this->increment(1);
-            }
-            ValueType operator++(int) {
-                std::lock_guard<std::shared_mutex> lock(this->lock_);
-                ValueType old_value = this->value_;
-                this->value_ += 1;
-                return old_value;
-            }
-            ValueType operator--() {
-                return this->decrement(1);
-            }
-            ValueType operator--(int) {
-                std::lock_guard<std::shared_mutex> lock(this->lock_);
-                ValueType old_value = this->value_;
-                this->value_ -= 1;
-                return old_value;
+            void push_front(const ValueType& value) {
+                std::unique_lock lock(this->lock_);
+                this->data_.push_front(value);
             }
 
-            bool operator==(const ValueType& other) const {
-                std::shared_lock lock(this->lock_);
-                return this->value_ == other;
+            void push_front(ValueType&& value) {
+                std::unique_lock lock(this->lock_);
+                this->data_.push_front(std::move(value));
             }
-            bool operator!=(const ValueType& other) const {
-                std::shared_lock lock(this->lock_);
-                return this->value_ != other;
+
+            std::optional<ValueType> pop_front() {
+                std::unique_lock lock(this->lock_);
+                if (this->data_.empty()) {
+                    return std::nullopt;
+                }
+                ValueType front_value = std::move(this->data_.front());
+                this->data_.pop_front();
+                return front_value;
             }
-            bool operator>=(const ValueType& other) const {
-                std::shared_lock lock(this->lock_);
-                return this->value_ >= other;
+
+            std::optional<ValueType> pop_back() {
+                std::unique_lock lock(this->lock_);
+                if (this->data_.empty()) {
+                    return std::nullopt;
+                }
+                ValueType back_value = std::move(this->data_.back());
+                this->data_.pop_back();
+                return back_value;
             }
-            bool operator<=(const ValueType& other) const {
-                std::shared_lock lock(this->lock_);
-                return this->value_ <= other;
+
+            void resize(std::size_t size) {
+                std::unique_lock lock(this->lock_);
+                this->data_.resize(size);
             }
-            bool operator>(const ValueType& other) const {
-                std::shared_lock lock(this->lock_);
-                return this->value_ > other;
+
+            void resize(std::size_t size, const ValueType& fill_value) {
+                std::unique_lock lock(this->lock_);
+                this->data_.resize(size, fill_value);
             }
-            bool operator<(const ValueType& other) const {
-                std::shared_lock lock(this->lock_);
-                return this->value_ < other;
+
+            template<class... Args>
+            void emplace_back(Args&&... args) {
+                std::unique_lock lock(this->lock_);
+                this->data_.emplace_back(std::forward<Args>(args)...);
             }
+
+            template<class... Args>
+            void emplace_front(Args&&... args) {
+                std::unique_lock lock(this->lock_);
+                this->data_.emplace_front(std::forward<Args>(args)...);
+            }
+
+        private:
+            std::deque<ValueType> data_;
+            mutable std::shared_mutex lock_;
     };
 
     template<typename ValueType>
@@ -173,22 +167,121 @@ namespace owplog::utility {
             explicit ProtectedVector(std::initializer_list<ValueType> initial_data) : data_(initial_data) {}
             explicit ProtectedVector(std::vector<ValueType> initial_data) : data_(std::move(initial_data)) {}
 
-            template<typename Transformer>
-            auto on(size_t index, Transformer callback) const {
+            template<typename Operator, class... Args>
+            auto on_range(Operator function, Args&&... args) const {
+                std::vector<ValueType> snapshot;
+                {
+                    std::shared_lock<std::shared_mutex> lock(this->lock_);
+                    snapshot = this->data_;
+                }
+
+                return function(snapshot.begin(), snapshot.end(), std::forward<Args>(args)...);
+            }
+
+            template<typename Predicate>
+            bool all_of(Predicate predicate) const {
                 std::shared_lock<std::shared_mutex> lock(this->lock_);
-                return callback(this->data_.at(index));
+                return std::all_of(this->data_.begin(), this->data_.end(), predicate);
+            }
+
+            template<typename Predicate>
+            bool any_of(Predicate predicate) const {
+                std::shared_lock<std::shared_mutex> lock(this->lock_);
+                return std::any_of(this->data_.begin(), this->data_.end(), predicate);
+            }
+
+            template<typename Predicate>
+            bool none_of(Predicate predicate) const {
+                std::shared_lock<std::shared_mutex> lock(this->lock_);
+                return std::none_of(this->data_.begin(), this->data_.end(), predicate);
+            }
+
+            template<typename Transformer>
+            auto on_index(size_t index, Transformer callback) const {
+                ValueType copy;
+                {
+                    std::shared_lock<std::shared_mutex> lock(this->lock_);
+                    copy = this->data_.at(index);
+                }
+
+                return callback(copy);
             };
+
+            template<typename Transformer, class... Args>
+            auto on_index(size_t index, Transformer callback, Args&&... args) const {
+                ValueType copy = [&] {
+                    std::shared_lock<std::shared_mutex> lock(this->lock_);
+                    return this->data_.at(index);
+                }();
+
+                return callback(copy, std::forward<Args>(args)...);
+            };
+
+            template<typename Selector, typename Callback>
+            void on_selected(Selector selector, Callback callback) const {
+                std::shared_lock<std::shared_mutex> lock(this->lock_);
+                for (const auto& item : this->data_) {
+                    if (selector(item)) {
+                        callback(item);
+                    }
+                }
+            }
+
+            template<typename Selector, typename Callback, class... Args>
+            void on_selected(Selector selector, Callback callback, Args&&... args) const {
+                std::shared_lock<std::shared_mutex> lock(this->lock_);
+                for (const auto& item : this->data_) {
+                    if (selector(item, std::forward<Args>(args)...)) {
+                        callback(item);
+                    }
+                }
+            }
 
             template<typename Transformer>
             auto on_front(Transformer callback) const {
-                std::shared_lock<std::shared_mutex> lock(this->lock_);
-                return callback(this->data_.front());
+                ValueType copy = [&] {
+                    std::shared_lock<std::shared_mutex> lock(this->lock_);
+                    return this->data_.front();
+                }();
+                return callback(copy);
+            };
+
+            template<typename Transformer, class... Args>
+            auto on_front(Transformer callback, Args&&... args) const {
+                ValueType copy = [&] {
+                    std::shared_lock<std::shared_mutex> lock(this->lock_);
+                    return this->data_.front();
+                }();
+                return callback(copy, std::forward<Args>(args)...);
             };
 
             template<typename Transformer>
             auto on_back(Transformer callback) const {
-                std::lock_guard<std::shared_mutex> lock(this->lock_);
-                return callback(this->data_.back());
+                ValueType copy = [&] {
+                    std::shared_lock<std::shared_mutex> lock(this->lock_);
+                    return this->data_.back();
+                }();
+                return callback(copy);
+            }
+
+            template<typename Transformer, class... Args>
+            auto on_back(Transformer callback, Args&&... args) const {
+                ValueType copy = [&] {
+                    std::shared_lock<std::shared_mutex> lock(this->lock_);
+                    return this->data_.back();
+                }();
+                return callback(copy, std::forward<Args>(args)...);
+            }
+
+            template<typename Predicate>
+            size_t count_if(Predicate predicate) const {
+                std::shared_lock<std::shared_mutex> lock(this->lock_);
+                return std::count_if(this->data_.begin(), this->data_.end(), predicate);
+            }
+
+            size_t count(const ValueType& value) const {
+                std::shared_lock<std::shared_mutex> lock(this->lock_);
+                return std::count(this->data_.begin(), this->data_.end(), value);
             }
 
             void assign(size_t count, const ValueType& value) {
@@ -302,13 +395,18 @@ namespace owplog::utility {
 
             template<typename Mapper>
             auto map(Mapper callback) const {
+                std::vector<ValueType> snapshot;
+                {
+                    std::shared_lock lock(this->lock_);
+                    snapshot = this->data_;
+                }
                 using ReturnType = std::decay_t<
                     decltype(callback(std::declval<const ValueType&>()))
                 >;
-                std::shared_lock lock(this->lock_);
+
                 std::vector<ReturnType> result;
-                result.reserve(this->data_.size());
-                for (auto& value : this->data_) {
+                result.reserve(snapshot.size());
+                for (auto& value : snapshot) {
                     result.push_back(callback(value));
                 }
                 return result;

@@ -113,7 +113,7 @@ TEST(LoggerTest, CApiWritesToFile) {
 
     // Output path used by upstream logger sink.
     const auto path = temp_log_path("owplog_c_api");
-    ASSERT_TRUE(logger.add_file_sink(path.string(), false));
+    ASSERT_TRUE(logger.add_file_handler(path.string(), false));
 
     const owplog_sublogger_handle handle = owplog_logger_add_sublogger("c.test.sub");
     ASSERT_GT(handle, 0);
@@ -147,7 +147,7 @@ TEST(LoggerTest, CapturesStdout) {
 
     // Output path used for stdout capture assertions.
     const auto path = temp_log_path("owplog_capture");
-    ASSERT_TRUE(logger.add_file_sink(path.string(), false));
+    ASSERT_TRUE(logger.add_file_handler(path.string(), false));
 
     ASSERT_TRUE(logger.capture_stdio(true, false));
     std::printf("captured-line-from-stdout\n");
