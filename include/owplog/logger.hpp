@@ -142,9 +142,9 @@ class Logger final {
          * @post On failure, logger configuration is unchanged.
          * @throws Never throws; implementation converts handler-construction exceptions to `false`.
          */
-        bool add_file_sink(const std::string& path, bool append = true);
-        bool add_file_sink(const char* path, bool append = true);
-        bool add_file_sink(const std::filesystem::path& path, bool append = true);
+        bool add_file_handler(const std::string& path, bool append = true);
+        bool add_file_handler(const char* path, bool append = true);
+        bool add_file_handler(const std::filesystem::path& path, bool append = true);
 
         /**
          * @brief Start capturing process stdout/stderr streams.

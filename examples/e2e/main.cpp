@@ -187,7 +187,7 @@ inline owplog::Logger& setup_logging() {
     if (WRITE_TO_CONSOLE) {
         logger.configure_default_console();
     }
-    logger.add_file_sink(LOG_PATH, APPEND_TO_LOG);
+    logger.add_file_handler(LOG_PATH, APPEND_TO_LOG);
     logger.capture_stdio();
     OWPLOG_LOG(owplog::LogLevel::Info, APPLICATION_NAME, "main started and logger configured");
     return logger;
