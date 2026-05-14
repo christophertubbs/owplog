@@ -198,11 +198,10 @@ namespace owplog::utility {
 
             template<typename Transformer>
             auto on_index(size_t index, Transformer callback) const {
-                ValueType copy;
-                {
+                ValueType copy = [&] {
                     std::shared_lock<std::shared_mutex> lock(this->lock_);
-                    copy = this->data_.at(index);
-                }
+                    return this->data_.at(index);
+                }();
 
                 return callback(copy);
             };
