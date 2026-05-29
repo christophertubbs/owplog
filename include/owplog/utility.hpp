@@ -10,153 +10,195 @@
 #include <vector>
 #include <optional>
 #include <algorithm>
+#include <condition_variable>
 #include <utility>
 #include <mutex>
 #include <cstddef>
 #include <deque>
 #include <functional>
+#include <regex>
+#include <stdexcept>
+#include <string_view>
 
 namespace owplog::utility {
+    inline bool string_type_endswith(const std::string_view text, const std::string_view suffix) {
+        if (suffix.size() > text.size()) {
+            return false;
+        }
+
+        const std::size_t suffix_start_index = text.size() - suffix.size();
+        return text.compare(suffix_start_index, suffix.size(), suffix) == 0;
+    }
+
+    inline std::string join_strings(const std::vector<std::string>& strings, const std::string& separator) {
+        std::ostringstream output_stream;
+
+        for (std::size_t string_index = 0; string_index < strings.size(); ++string_index) {
+            if (string_index > 0) {
+                output_stream << separator;
+            }
+            output_stream << strings[string_index];
+        }
+
+        return output_stream.str();
+    }
+
     template<typename ValueType>
-    class Protected {
+    class DispatchQueue {
+        std::deque<ValueType> queue_;
+        mutable std::mutex queue_lock_;
+        std::condition_variable insertion_signal_;
+        int in_flight_{0};
+        bool shutdown_requested_{false};
+
         public:
-            Protected() = default;
-            explicit Protected(ValueType value) : value_(std::move(value)) {}
-            ~Protected() = default;
-            Protected(const Protected& other) : value_(other.read_copy()) {};
-            Protected& operator=(const Protected& other) {
-                if (this == &other) {
-                    return *this;
+            DispatchQueue() = default;
+            ~DispatchQueue() = default;
+            DispatchQueue(const DispatchQueue& other) = delete;
+            DispatchQueue& operator=(const DispatchQueue& other) = delete;
+
+            DispatchQueue(DispatchQueue&&) = delete;
+            DispatchQueue& operator=(DispatchQueue&&) = delete;
+
+            std::optional<ValueType> next() {
+                std::unique_lock lock(this->queue_lock_);
+                if (this->queue_.empty()) {
+                    return std::nullopt;
                 }
-                ValueType copy = other.read_copy();
-                std::lock_guard<std::shared_mutex> lock(this->lock_);
-                this->value_ = copy;
-                return *this;
-            };
-            Protected& operator=(const ValueType& other) {
-                std::lock_guard<std::shared_mutex> lock(this->lock_);
-                this->value_ = other;
-                return *this;
-            }
-            Protected& operator=(ValueType&& other) {
-                std::lock_guard<std::shared_mutex> lock(this->lock_);
-                this->value_ = std::move(other);
-                return *this;
+                ValueType value = std::move(this->queue_.front());
+                this->queue_.pop_front();
+                ++this->in_flight_;
+                return value;
             }
 
-            ValueType read_copy() const {
-                std::shared_lock lock(this->lock_);
-                return this->value_;
+            bool submit(ValueType value) {
+                {
+                    std::unique_lock lock(this->queue_lock_);
+
+                    if (this->shutdown_requested_) {
+                        return false;
+                    }
+
+                    this->queue_.push_back(std::move(value));
+                }
+                this->insertion_signal_.notify_one();
+                return true;
             }
 
-            template<typename CallbackType>
-            decltype(auto) read(CallbackType callback) const {
-                std::shared_lock lock(this->lock_);
-                return callback(this->value_);
+            void mark_completed() {
+                std::unique_lock lock(this->queue_lock_);
+                if (this->in_flight_ > 0) {
+                    --this->in_flight_;
+                } else {
+                    throw std::runtime_error("Cannot mark completed when no items are in flight");
+                }
             }
 
-            void set(ValueType value) {
-                std::lock_guard<std::shared_mutex> lock(this->lock_);
-                this->value_ = std::move(value);
+            std::optional<ValueType> listen_for_submission() {
+                std::unique_lock lock(this->queue_lock_);
+                this->insertion_signal_.wait(
+                    lock,
+                    [this] {
+                        return !this->queue_.empty() || this->shutdown_requested_;
+                    }
+                    );
+                if (this->queue_.empty()) {
+                    return std::nullopt;
+                }
+                ValueType value = std::move(this->queue_.front());
+                this->queue_.pop_front();
+                ++this->in_flight_;
+                return value;
             }
-        protected:
-            mutable std::shared_mutex lock_;
-            ValueType value_;
+
+            void request_shutdown() {
+                {
+                    std::lock_guard lock(this->queue_lock_);
+                    this->shutdown_requested_ = true;
+                }
+                this->insertion_signal_.notify_all();
+            }
+
+            bool accepting_submissions() const {
+                std::lock_guard lock(this->queue_lock_);
+                return !this->shutdown_requested_;
+            }
     };
 
     template<typename ValueType>
-    class ProtectedDeque {
+    class TrackedDispatch {
+        DispatchQueue<ValueType> *queue_;
+        ValueType value_;
+
         public:
-            ProtectedDeque() = default;
-            ~ProtectedDeque() = default;
-            explicit ProtectedDeque(std::initializer_list<ValueType> initial_data) : data_(initial_data.begin(), initial_data.end()) {}
-            explicit ProtectedDeque(std::deque<ValueType> initial_data) : data_(std::move(initial_data)) {}
+            TrackedDispatch(ValueType value, DispatchQueue<ValueType>* queue) : queue_{queue}, value_(std::move(value)) {}
+            TrackedDispatch(TrackedDispatch&& other) noexcept : queue_(other.queue_), value_(std::move(other.value_)) {
+                // The other queue_ has to be set to null or else the completion will be marke
+                other.queue_ = nullptr;
+            }
+            TrackedDispatch& operator=(TrackedDispatch&& other) noexcept {
+                if (this == &other) {
+                    return *this;
+                }
 
-            [[nodiscard]] std::size_t size() const {
-                std::shared_lock lock(this->lock_);
-                return this->data_.size();
-            };
-
-            [[nodiscard]] std::size_t max_size() const {
-                std::shared_lock lock(this->lock_);
-                return this->data_.max_size();
+                if (this->queue_ != nullptr) {
+                    this->queue_->mark_completed();
+                }
+                queue_ = other.queue_;
+                value_ = std::move(other.value_);
+                return *this;
             }
 
-            [[nodiscard]] bool empty() const {
-                std::shared_lock lock(this->lock_);
-                return this->data_.empty();
+            ~TrackedDispatch() {
+                if (queue_ != nullptr) {
+                    queue_->mark_completed();
+                }
             }
 
-            void clear() {
-                std::unique_lock lock(this->lock_);
-                this->data_.clear();
-            };
-
-            void push_back(const ValueType& value) {
-                std::unique_lock lock(this->lock_);
-                this->data_.push_back(value);
+            ValueType& get() {
+                return this->value_;
             }
 
-            void push_back(ValueType&& value) {
-                std::unique_lock lock(this->lock_);
-                this->data_.push_back(std::move(value));
+            const ValueType& get() const {
+                return this->value_;
             }
+    };
 
-            void push_front(const ValueType& value) {
-                std::unique_lock lock(this->lock_);
-                this->data_.push_front(value);
-            }
+    template<typename ValueType>
+    class TrackedDispatchQueue {
+        DispatchQueue<ValueType> queue_;
+        public:
+            std::optional<TrackedDispatch<ValueType>> next() {
+                std::optional<ValueType> next_value = this->queue_.next();
 
-            void push_front(ValueType&& value) {
-                std::unique_lock lock(this->lock_);
-                this->data_.push_front(std::move(value));
-            }
-
-            std::optional<ValueType> pop_front() {
-                std::unique_lock lock(this->lock_);
-                if (this->data_.empty()) {
+                if (!next_value.has_value()) {
                     return std::nullopt;
                 }
-                ValueType front_value = std::move(this->data_.front());
-                this->data_.pop_front();
-                return front_value;
+
+                return TrackedDispatch<ValueType>(std::move(*next_value), &this->queue_);
             }
 
-            std::optional<ValueType> pop_back() {
-                std::unique_lock lock(this->lock_);
-                if (this->data_.empty()) {
+            std::optional<TrackedDispatch<ValueType>> listen_for_submission() {
+                std::optional<ValueType> next_value = this->queue_.listen_for_submission();
+
+                if (!next_value.has_value()) {
                     return std::nullopt;
                 }
-                ValueType back_value = std::move(this->data_.back());
-                this->data_.pop_back();
-                return back_value;
+
+                return TrackedDispatch<ValueType>(std::move(*next_value), &this->queue_);
             }
 
-            void resize(std::size_t size) {
-                std::unique_lock lock(this->lock_);
-                this->data_.resize(size);
+            [[nodiscard]] bool accepting_submissions() const {
+                return this->queue_.accepting_submissions();
             }
 
-            void resize(std::size_t size, const ValueType& fill_value) {
-                std::unique_lock lock(this->lock_);
-                this->data_.resize(size, fill_value);
+            bool submit(ValueType value) {
+                return this->queue_.submit(std::move(value));
             }
 
-            template<class... Args>
-            void emplace_back(Args&&... args) {
-                std::unique_lock lock(this->lock_);
-                this->data_.emplace_back(std::forward<Args>(args)...);
+            void request_shutdown() {
+                this->queue_.request_shutdown();
             }
-
-            template<class... Args>
-            void emplace_front(Args&&... args) {
-                std::unique_lock lock(this->lock_);
-                this->data_.emplace_front(std::forward<Args>(args)...);
-            }
-
-        private:
-            std::deque<ValueType> data_;
-            mutable std::shared_mutex lock_;
     };
 
     template<typename ValueType>
@@ -166,9 +208,45 @@ namespace owplog::utility {
             ~ProtectedVector() = default;
             explicit ProtectedVector(std::initializer_list<ValueType> initial_data) : data_(initial_data) {}
             explicit ProtectedVector(std::vector<ValueType> initial_data) : data_(std::move(initial_data)) {}
+            explicit ProtectedVector(const ValueType* initial_data, size_t size) : data_(initial_data, initial_data + size) {}
+            ProtectedVector(const ProtectedVector& other) {
+                std::shared_lock<std::shared_mutex> source_lock(other.lock_);
+                this->data_ = other.data_;
+            }
+            ProtectedVector(ProtectedVector&& other) noexcept {
+                std::unique_lock<std::shared_mutex> source_lock(other.lock_);
+                this->data_ = std::move(other.data_);
+            }
+
+            ProtectedVector& operator=(const ProtectedVector& other) {
+                if (this == &other) {
+                    return *this;
+                }
+                std::unique_lock<std::shared_mutex> destination_lock(this->lock_, std::defer_lock);
+                std::shared_lock<std::shared_mutex> source_lock(other.lock_, std::defer_lock);
+                std::lock(destination_lock, source_lock);
+                this->data_ = other.data_;
+                return *this;
+            }
+
+            ProtectedVector& operator=(ProtectedVector&& other) noexcept {
+                if (this == &other) {
+                    return *this;
+                }
+                std::unique_lock<std::shared_mutex> destination_lock(this->lock_, std::defer_lock);
+                std::unique_lock<std::shared_mutex> source_lock(other.lock_, std::defer_lock);
+                std::lock(destination_lock, source_lock);
+                this->data_ = std::move(other.data_);
+                return *this;
+            }
+
+            std::vector<ValueType> snapshot() const {
+                std::shared_lock<std::shared_mutex> lock(this->lock_);
+                return this->data_;
+            }
 
             template<typename Operator, class... Args>
-            auto on_range(Operator function, Args&&... args) const {
+            auto on_snapshot_range(Operator function, Args&&... args) const {
                 std::vector<ValueType> snapshot;
                 {
                     std::shared_lock<std::shared_mutex> lock(this->lock_);
@@ -180,20 +258,32 @@ namespace owplog::utility {
 
             template<typename Predicate>
             bool all_of(Predicate predicate) const {
-                std::shared_lock<std::shared_mutex> lock(this->lock_);
-                return std::all_of(this->data_.begin(), this->data_.end(), predicate);
+                std::vector<ValueType> snapshot;
+                {
+                    std::shared_lock<std::shared_mutex> lock(this->lock_);
+                    snapshot = this->data_;
+                }
+                return std::all_of(snapshot.begin(), snapshot.end(), predicate);
             }
 
             template<typename Predicate>
             bool any_of(Predicate predicate) const {
-                std::shared_lock<std::shared_mutex> lock(this->lock_);
-                return std::any_of(this->data_.begin(), this->data_.end(), predicate);
+                std::vector<ValueType> snapshot;
+                {
+                    std::shared_lock<std::shared_mutex> lock(this->lock_);
+                    snapshot = this->data_;
+                }
+                return std::any_of(snapshot.begin(), this->data_.end(), predicate);
             }
 
             template<typename Predicate>
             bool none_of(Predicate predicate) const {
-                std::shared_lock<std::shared_mutex> lock(this->lock_);
-                return std::none_of(this->data_.begin(), this->data_.end(), predicate);
+                std::vector<ValueType> snapshot;
+                {
+                    std::shared_lock<std::shared_mutex> lock(this->lock_);
+                    snapshot = this->data_;
+                }
+                return std::none_of(snapshot.begin(), snapshot.end(), predicate);
             }
 
             template<typename Transformer>
@@ -228,7 +318,7 @@ namespace owplog::utility {
 
             template<typename Selector, typename Callback, class... Args>
             void on_selected(Selector selector, Callback callback, Args&&... args) const {
-                std::shared_lock<std::shared_mutex> lock(this->lock_);
+                std::unique_lock<std::shared_mutex> lock(this->lock_);
                 for (const auto& item : this->data_) {
                     if (selector(item, std::forward<Args>(args)...)) {
                         callback(item);
@@ -237,21 +327,37 @@ namespace owplog::utility {
             }
 
             template<typename Transformer>
-            auto on_front(Transformer callback) const {
-                ValueType copy = [&] {
-                    std::shared_lock<std::shared_mutex> lock(this->lock_);
-                    return this->data_.front();
-                }();
-                return callback(copy);
+            bool on_front(Transformer callback) const {
+                std::unique_lock<std::shared_mutex> lock(this->lock_);
+
+                if (this->data_.empty()) {
+                    return false;
+                }
+
+                callback(this->data_.front());
+
+                return true;
             };
 
-            template<typename Transformer, class... Args>
-            auto on_front(Transformer callback, Args&&... args) const {
+            ValueType copy_value(int index) const {
                 ValueType copy = [&] {
                     std::shared_lock<std::shared_mutex> lock(this->lock_);
-                    return this->data_.front();
+                    return this->data_.at(index);
                 }();
-                return callback(copy, std::forward<Args>(args)...);
+                return copy;
+            }
+
+            template<typename Transformer, class... Args>
+            bool on_front(Transformer callback, Args&&... args) const {
+                std::unique_lock<std::shared_mutex> lock(this->lock_);
+
+                if (this->data_.empty()) {
+                    return false;
+                }
+
+                callback(this->data_.front(), std::forward<Args>(args)...);
+
+                return true;
             };
 
             template<typename Transformer>
@@ -322,7 +428,9 @@ namespace owplog::utility {
 
             void pop_back() {
                 std::lock_guard<std::shared_mutex> lock(this->lock_);
-                this->data_.pop_back();
+                if (!this->data_.empty()) {
+                    this->data_.pop_back();
+                }
             }
 
             std::optional<ValueType> remove_at(std::size_t index){
@@ -387,7 +495,7 @@ namespace owplog::utility {
             template<typename Consumer>
             void for_each(Consumer callback) const {
                 std::shared_lock lock(this->lock_);
-                for (auto& value : this->data_) {
+                for (const ValueType& value : this->data_) {
                     callback(value);
                 }
             }
@@ -405,7 +513,7 @@ namespace owplog::utility {
 
                 std::vector<ReturnType> result;
                 result.reserve(snapshot.size());
-                for (auto& value : snapshot) {
+                for (ValueType& value : snapshot) {
                     result.push_back(callback(value));
                 }
                 return result;
@@ -414,5 +522,107 @@ namespace owplog::utility {
             std::vector<ValueType> data_;
             mutable std::shared_mutex lock_;
     };
+
+    inline std::string replace_all_text(
+        const std::string& template_text,
+        const std::string_view placeholder,
+        const std::string_view replacement
+    ) {
+        std::string result = template_text;
+        size_t pos = 0;
+        while ((pos = result.find(placeholder, pos)) != std::string::npos) {
+            result.replace(pos, placeholder.length(), replacement);
+            pos += replacement.length();
+        }
+        return result;
+    }
+
+    inline void throw_error(
+        const std::string& error_type,
+        const std::string& error_message,
+        const std::string& file,
+        const int line,
+        const std::string& function,
+        const std::string& message_format = "%(message)s"
+    ) {
+        std::string formatted_message = replace_all_text(
+            message_format,
+            "%(message)",
+            error_message
+        );
+        formatted_message = replace_all_text(
+            formatted_message,
+            "%(lineno)d",
+            std::to_string(line)
+        );
+
+        formatted_message = replace_all_text(
+            formatted_message,
+            "%(filename)",
+            file
+        );
+
+        formatted_message = replace_all_text(
+            formatted_message,
+            "%(funcName)s",
+            function
+        );
+
+        formatted_message = replace_all_text(
+            formatted_message,
+            "%(exc_info)s",
+            error_type
+        );
+
+        if (error_type == "logic_error") {
+            throw std::logic_error(formatted_message);
+        }
+
+        if (error_type == "invalid_argument") {
+            throw std::invalid_argument(formatted_message);
+        }
+
+        if (error_type == "out_of_range") {
+            throw std::out_of_range(formatted_message);
+        }
+        if (error_type == "domain_error") {
+            throw std::domain_error(formatted_message);
+        }
+        if (error_type == "length_error") {
+            throw std::length_error(formatted_message);
+        }
+
+        if (error_type == "out_of_range") {
+            throw std::out_of_range(formatted_message);
+        }
+
+        if (error_type == "overflow_error") {
+            throw std::overflow_error(formatted_message);
+        }
+
+        if (error_type == "underflow_error") {
+            throw std::underflow_error(formatted_message);
+        }
+
+        throw std::runtime_error(formatted_message);
+    }
+
 }
+#define DEFAULT_ERROR_FORMAT "%(filename)s%(funcName)s#%(lineno)d %(exc_info)s: %(message)s"
+#define RUNTIME_ERROR(message, fmt) owplog::utility::throw_error("runtime_error", message, __FILE__, __LINE__, __func__, fmt)
+#define THROW_RUNTIME_ERROR(message) owplog::utility::throw_error("runtime_error", message, __FILE__, __LINE__, __func__, DEFAULT_ERROR_FORMAT)
+#define LOGIC_ERROR(message, fmt) owplog::utility::throw_error("logic_error", message, __FILE__, __LINE__, __func__, fmt)
+#define THROW_LOGIC_ERROR(message) owplog::utility::throw_error("logic_error", message, __FILE__, __LINE__, __func__, DEFAULT_ERROR_FORMAT)
+#define INVALID_ARGUMENT(message, fmt) owplog::utility::throw_error("invalid_argument", message, __FILE__, __LINE__, __func__, fmt)
+#define THROW_INVALID_ARGUMENT(message) owplog::utility::throw_error("invalid_argument", message, __FILE__, __LINE__, __func__, DEFAULT_ERROR_FORMAT)
+#define OUT_OF_RANGE(message, fmt) owplog::utility::throw_error("out_of_range", message, __FILE__, __LINE__, __func__, fmt)
+#define THROW_OUT_OF_RANGE(message) owplog::utility::throw_error("out_of_range", message, __FILE__, __LINE__, __func__, DEFAULT_ERROR_FORMAT)
+#define DOMAIN_ERROR(message, fmt) owplog::utility::throw_error("domain_error", message, __FILE__, __LINE__, __func__, fmt)
+#define THROW_DOMAIN_ERROR(message) owplog::utility::throw_error("domain_error", message, __FILE__, __LINE__, __func__, DEFAULT_ERROR_FORMAT)
+#define LENGTH_ERROR(message, fmt) owplog::utility::throw_error("length_error", message, __FILE__, __LINE__, __func__, fmt)
+#define THROW_LENGTH_ERROR(message) owplog::utility::throw_error("length_error", message, __FILE__, __LINE__, __func__, DEFAULT_ERROR_FORMAT)
+#define OVERFLOW_ERROR(message, fmt) owplog::utility::throw_error("overflow_error", message, __FILE__, __LINE__, __func__, fmt)
+#define THROW_OVERFLOW_ERROR(message) owplog::utility::throw_error("overflow_error", message, __FILE__, __LINE__, __func__, DEFAULT_ERROR_FORMAT)
+#define UNDERFLOW_ERROR(message, fmt) owplog::utility::throw_error("underflow_error", message, __FILE__, __LINE__, __func__, fmt)
+#define THROW_UNDERFLOW_ERROR(message) owplog::utility::throw_error("underflow_error", message, __FILE__, __LINE__, __func__, DEFAULT_ERROR_FORMAT)
 #endif //OWPLOG_UTILITY_H
