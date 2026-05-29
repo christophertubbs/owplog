@@ -8,16 +8,16 @@
 
 #include "owplog/filter.hpp"
 #include "owplog/formatter.hpp"
-#include "owplog/handler.hpp"
+#include "owplog/handlers/log_handler.h"
 
 #include <condition_variable>
-#include <deque>
 #include <memory>
 #include <mutex>
 #include <string_view>
 #include <thread>
 #include <vector>
 #include <filesystem>
+#include <atomic>
 
 namespace owplog {
 
@@ -99,7 +99,7 @@ class Logger final {
          * @post Handler list contains appended sink pointer.
          * @throws May propagate allocation failures when growing sink storage.
          */
-        void add_handler(LogHandlerPtr handler);
+        void add_handler(handlers::LogHandlerPtr handler);
         /**
          * @brief Remove all configured sinks.
          * @pre None.
@@ -123,28 +123,6 @@ class Logger final {
          * @throws No intentional exceptions.
          */
         void clear_filters();
-
-        /**
-         * @brief Attach default console handler when handler list is empty.
-         * @pre None.
-         * @post At least one handler exists (unless allocation fails).
-         * @throws May propagate allocation failures.
-         */
-        void configure_default_console();
-
-        /**
-         * @brief Convenience helper to attach a file handler.
-         * @param path File output path.
-         * @param append True to append, false to truncate.
-         * @return True on success.
-         * @pre `path` refers to a writable location for the current process.
-         * @post On success, a file handler is appended.
-         * @post On failure, logger configuration is unchanged.
-         * @throws Never throws; implementation converts handler-construction exceptions to `false`.
-         */
-        bool add_file_handler(const std::string& path, bool append = true);
-        bool add_file_handler(const char* path, bool append = true);
-        bool add_file_handler(const std::filesystem::path& path, bool append = true);
 
         /**
          * @brief Start capturing process stdout/stderr streams.
@@ -202,7 +180,63 @@ class Logger final {
             SourceLocation source = {},
             LogOrigin origin = LogOrigin::Application,
             int rank = -1,
-            std::string_view language = {});
+            std::string_view language = "C++"
+        );
+
+        void error(
+            const std::string_view message,
+            const std::string_view logger_name = "owplog",
+            SourceLocation source = {},
+            const LogOrigin origin = LogOrigin::Application,
+            const int rank = -1,
+            const std::string_view language = "C++"
+        ) {
+            log(LogLevel::Error, message, logger_name, std::move(source), origin, rank, language);
+        }
+
+        void warning(
+            const std::string_view message,
+            const std::string_view logger_name = "owplog",
+            SourceLocation source = {},
+            const LogOrigin origin = LogOrigin::Application,
+            const int rank = -1,
+            const std::string_view language = "C++"
+        ) {
+            log(LogLevel::Warning, message, logger_name, std::move(source), origin, rank, language);
+        }
+
+        void info(
+            const std::string_view message,
+            const std::string_view logger_name = "owplog",
+            SourceLocation source = {},
+            const LogOrigin origin = LogOrigin::Application,
+            const int rank = -1,
+            const std::string_view language = "C++"
+        ) {
+            log(LogLevel::Info, message, logger_name, std::move(source), origin, rank, language);
+        }
+
+        void debug(
+            const std::string_view message,
+            const std::string_view logger_name = "owplog",
+            SourceLocation source = {},
+            const LogOrigin origin = LogOrigin::Application,
+            const int rank = -1,
+            const std::string_view language = "C++"
+        ) {
+            log(LogLevel::Debug, message, logger_name, std::move(source), origin, rank, language);
+        }
+
+        void critical(
+            const std::string_view message,
+            const std::string_view logger_name = "owplog",
+            SourceLocation source = {},
+            const LogOrigin origin = LogOrigin::Application,
+            const int rank = -1,
+            const std::string_view language = "C++"
+        ) {
+            log(LogLevel::Critical, message, logger_name, std::move(source), origin, rank, language);
+        }
 
         /**
          * @brief Wait until queue drains and flush all sinks.
@@ -211,7 +245,7 @@ class Logger final {
          * @post Each configured handler has had `flush()` invoked once.
          * @throws No intentional exceptions.
          */
-        void flush();
+        void flush() const;
 
         /** Deleted copy constructor for singleton semantics. */
         Logger(const Logger&) = delete;
@@ -243,39 +277,147 @@ class Logger final {
         class StdioCapture;
 
         /** Mutex protecting configuration state (level/filters/sinks/formatter). */
-        mutable std::mutex config_mutex_;
+        mutable std::mutex state_mutex_;
         /** Global minimum severity threshold. */
         LogLevel level_;
         /** Active formatter instance. */
         LogFormatterPtr formatter_;
         /** Active handler list. */
-        std::vector<LogHandlerPtr> handlers_;
+        std::vector<handlers::LogHandlerPtr> handlers_;
         /** Process-level filter list. */
         std::vector<LogFilterPtr> filters_;
 
-        /** Mutex protecting queue state and worker lifecycle fields. */
-        std::mutex queue_mutex_;
-        /** Condition variable waking worker on enqueue/shutdown. */
-        std::condition_variable queue_signal_;
-        /** Condition variable used by flush waiters. */
-        std::condition_variable flush_signal_;
         /** Pending queue consumed by worker thread. */
-        std::deque<LogRecord> queue_;
+        utility::TrackedDispatchQueue<LogRecord> queue_;
         /** Dedicated asynchronous worker thread. */
         std::thread worker_;
         /** The maximum number of bytes that may be written prior to flushing */
         uint32_t maximum_buffer_size_ = 1024 * 1024;
         /** True when worker thread is running. */
-        bool running_;
+        std::atomic<bool> running_;
         /** Shutdown request flag observed by worker loop. */
-        bool stop_requested_;
-        /** Count of records in queue or currently being processed. */
-        std::size_t in_flight_;
+        std::atomic<bool> stop_requested_;
 
         /** Optional stdio capture subsystem instance. */
         std::unique_ptr<StdioCapture> stdio_capture_;
     };
 
+
+    /**
+     * @brief Enqueue one log record.
+     * @param level Severity level.
+     * @param message Message text.
+     * @param logger_name Logical logger name.
+     * @param source Optional source location.
+     * @param origin Record origin category.
+     * @param rank Optional HPC rank (-1 when unknown).
+     * @param language Optional caller language/runtime label.
+     * @pre `level` should not be @ref LogLevel::Off to produce output.
+     * @post Accepted records are queued for asynchronous processing.
+     * @post Rejected records (threshold/off) leave queue unchanged.
+     * @throws May propagate allocation failures while creating queue records.
+     */
+    inline void log(
+        const LogLevel level,
+        const std::string_view message,
+        const std::string_view logger_name = "root",
+        SourceLocation source = {},
+        const LogOrigin origin = LogOrigin::Application,
+        const int rank = -1,
+        const std::string_view language = "C++"
+    ) {
+        Logger::instance().log(level, message, logger_name, std::move(source), origin, rank, language);
+    };
+
+    inline void error(
+        const std::string_view message,
+        const std::string_view logger_name = "root",
+        SourceLocation source = {},
+        const LogOrigin origin = LogOrigin::Application,
+        const int rank = -1,
+        const std::string_view language = "C++"
+    ) {
+        Logger::instance().error(
+            message,
+            logger_name,
+            std::move(source),
+            origin,
+            rank,
+            language
+        );
+    }
+
+    inline void warning(
+        const std::string_view message,
+        const std::string_view logger_name = "root",
+        SourceLocation source = {},
+        const LogOrigin origin = LogOrigin::Application,
+        const int rank = -1,
+        const std::string_view language = "C++"
+    ) {
+        Logger::instance().warning(
+            message,
+            logger_name,
+            std::move(source),
+            origin,
+            rank,
+            language
+        );
+    }
+
+    inline void info(
+        const std::string_view message,
+        const std::string_view logger_name = "root",
+        SourceLocation source = {},
+        const LogOrigin origin = LogOrigin::Application,
+        const int rank = -1,
+        const std::string_view language = "C++"
+    ) {
+        Logger::instance().info(
+            message,
+            logger_name,
+            std::move(source),
+            origin,
+            rank,
+            language
+        );
+    }
+
+    inline void debug(
+        const std::string_view message,
+        const std::string_view logger_name = "root",
+        SourceLocation source = {},
+        const LogOrigin origin = LogOrigin::Application,
+        const int rank = -1,
+        const std::string_view language = "C++"
+    ) {
+        Logger::instance().debug(
+            message,
+            logger_name,
+            std::move(source),
+            origin,
+            rank,
+            language
+        );
+    }
+
+    inline void critical(
+        const std::string_view message,
+        const std::string_view logger_name = "root",
+        SourceLocation source = {},
+        const LogOrigin origin = LogOrigin::Application,
+        const int rank = -1,
+        const std::string_view language = "C++"
+    ) {
+        Logger::instance().critical(
+            message,
+            logger_name,
+            std::move(source),
+            origin,
+            rank,
+            language
+        );
+    }
 } // namespace owplog
 
 /** Source location helper macro for call-site metadata injection. */
@@ -287,14 +429,14 @@ class Logger final {
 
 /** Convenience macro for INFO-level messages on default logger name. */
 #define OWPLOG_LOG_INFO_MSG(message) \
-    ::owplog::Logger::instance().log(::owplog::LogLevel::Info, (message), "owplog", OWPLOG_SOURCE_LOCATION)
+    ::owplog::Logger::instance().info((message), "owplog", OWPLOG_SOURCE_LOCATION)
 
 /** Convenience macro for WARNING-level messages on default logger name. */
 #define OWPLOG_LOG_WARNING_MSG(message) \
-    ::owplog::Logger::instance().log(::owplog::LogLevel::Warning, (message), "owplog", OWPLOG_SOURCE_LOCATION)
+    ::owplog::Logger::instance().warning((message), "owplog", OWPLOG_SOURCE_LOCATION)
 
 /** Convenience macro for ERROR-level messages on default logger name. */
 #define OWPLOG_LOG_ERROR_MSG(message) \
-    ::owplog::Logger::instance().log(::owplog::LogLevel::Error, (message), "owplog", OWPLOG_SOURCE_LOCATION)
+    ::owplog::Logger::instance().error((message), "owplog", OWPLOG_SOURCE_LOCATION)
 
 #endif

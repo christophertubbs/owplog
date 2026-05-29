@@ -5,7 +5,7 @@
 #include <iostream>
 #include <filesystem>
 
-#include "owplog/logger.hpp"
+#include "owplog/owplog.h"
 #include "c_component.h"
 #include "cpp_component.hpp"
 #include "threadpool.cpp"
@@ -34,9 +34,7 @@ std::filesystem::path get_executable_path() {
         }
         auto resolved_character_count = static_cast<std::size_t>(character_count);
         if (resolved_character_count < path_buffer_size) {
-            return std::filesystem::path(
-                std::string(path_buffer.data(), resolved_character_count)
-            );
+            return {std::string(path_buffer.data(), resolved_character_count)};
         }
         path_buffer_size *= 2;
     }
@@ -131,12 +129,14 @@ class PythonScriptRunner {
 PYBIND11_EMBEDDED_MODULE(owplog_native_bridge, m) {
     m.def(
         "emit",
-        [](const std::string& logger_name,
-           const std::string& message,
-           const std::string& file_name,
-           int line_no,
-           const std::string& function_name,
-           int rank) {
+        [](
+            const std::string& logger_name,
+            const std::string& message,
+            const std::string& file_name,
+            int line_no,
+            const std::string& function_name,
+            int rank
+        ) {
             owplog::SourceLocation source{file_name, line_no, function_name};
             owplog::Logger::instance().log(
                 owplog::LogLevel::Info,
@@ -146,7 +146,8 @@ PYBIND11_EMBEDDED_MODULE(owplog_native_bridge, m) {
                 owplog::LogOrigin::Application,
                 rank,
                 "python");
-        });
+        }
+    );
 }
 
 void call_loose_python() {
@@ -185,9 +186,9 @@ inline owplog::Logger& setup_logging() {
     logger.set_level(LOG_LEVEL);
     logger.set_formatter(LOG_PATTERN);
     if (WRITE_TO_CONSOLE) {
-        logger.configure_default_console();
+        logger.add_handler(std::make_shared<owplog::ConsoleHandler>());
     }
-    logger.add_file_handler(LOG_PATH, APPEND_TO_LOG);
+    logger.add_handler(std::make_shared<owplog::FileHandler>(LOG_PATH, APPEND_TO_LOG));
     logger.capture_stdio();
     OWPLOG_LOG(owplog::LogLevel::Info, APPLICATION_NAME, "main started and logger configured");
     return logger;
@@ -266,6 +267,7 @@ int main() {
 #endif
 
 #if defined(OWPLOG_E2E_HAVE_PYTHON_EMBED)
+    // Write to stdout to show that a console logger can still pick this up
     std::cout << "[INFO] Python embed dependencies detected; running Python component.\n";
     py::scoped_interpreter guard{};
     py::module_ sys = py::module::import("sys");
@@ -286,6 +288,6 @@ int main() {
     }
 
     await_jobs(futures);
-    logger.log(owplog::LogLevel::Info, "main finished", "e2e.main", OWPLOG_SOURCE_LOCATION);
+    logger.log(owplog::LogLevel::Info, "main finished", APPLICATION_NAME, OWPLOG_SOURCE_LOCATION);
     return 0;
 }

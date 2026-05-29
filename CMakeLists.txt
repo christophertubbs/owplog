@@ -16,8 +16,16 @@ add_library(owplog STATIC
     src/filter.cpp
     src/formatter.cpp
     src/logger.cpp
-        src/handler.cpp
     include/owplog/utility.hpp
+    include/owplog/handlers/log_handler.h
+    include/owplog/handlers/file_handler.h
+    include/owplog/handlers/console_handler.h
+    src/handlers/log_handler.cpp
+    src/handlers/file_handler.cpp
+    src/handlers/console_handler.cpp
+    include/owplog/owplog.h
+    src/handlers/router.cpp
+    include/owplog/handlers/router.h
 )
 add_library(OWPLOG::owplog ALIAS owplog)
 

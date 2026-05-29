@@ -1,5 +1,8 @@
 #include "owplog/c_api.h"
 #include "owplog/logger.hpp"
+#include "owplog/handlers/log_handler.h"
+#include "owplog/handlers/console_handler.h"
+#include "owplog/handlers/file_handler.h"
 
 #include <gtest/gtest.h>
 
@@ -17,7 +20,7 @@ namespace {
 /**
  * @brief Test sink that only counts writes.
  */
-class CountingSink final : public owplog::LogHandler {
+class CountingSink final : public owplog::handlers::LogHandler {
 public:
     /** @brief Increment count for each delivered record. */
     void write(const owplog::LogRecord&, const std::string&) override {
@@ -113,7 +116,7 @@ TEST(LoggerTest, CApiWritesToFile) {
 
     // Output path used by upstream logger sink.
     const auto path = temp_log_path("owplog_c_api");
-    ASSERT_TRUE(logger.add_file_handler(path.string(), false));
+    logger.add_handler(std::make_shared<owplog::handlers::FileHandler>(path.string(), false));
 
     const owplog_sublogger_handle handle = owplog_logger_add_sublogger("c.test.sub");
     ASSERT_GT(handle, 0);
@@ -147,7 +150,7 @@ TEST(LoggerTest, CapturesStdout) {
 
     // Output path used for stdout capture assertions.
     const auto path = temp_log_path("owplog_capture");
-    ASSERT_TRUE(logger.add_file_handler(path.string(), false));
+    logger.add_handler(std::make_shared<owplog::handlers::FileHandler>(path.string(), false));
 
     ASSERT_TRUE(logger.capture_stdio(true, false));
     std::printf("captured-line-from-stdout\n");

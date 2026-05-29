@@ -1,16 +1,14 @@
 #include "owplog/logger.hpp"
 #include "owplog/formatter.hpp"
+#include "owplog/handlers/log_handler.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
-#include <cstring>
 #include <memory>
-#include <stdexcept>
 #include <utility>
 
 #include <unistd.h>
-#include <iostream>
 
 namespace owplog {
 
@@ -262,8 +260,7 @@ Logger::Logger() :
     level_(LogLevel::Info),
     formatter_(std::make_shared<PatternFormatter>()),
     running_(false),
-    stop_requested_(false),
-    in_flight_(0) {}
+    stop_requested_(false) {}
 
     /** @brief Ensure clean shutdown during static teardown. */
     Logger::~Logger() {
@@ -272,7 +269,7 @@ Logger::Logger() :
 
     /** @brief Start worker thread if not already running. */
     void Logger::start() {
-        std::lock_guard<std::mutex> lock(this->queue_mutex_);
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
         if (this->running_) {
             return;
         }
@@ -286,19 +283,21 @@ Logger::Logger() :
         this->stop_stdio_capture();
 
         {
-            std::lock_guard<std::mutex> lock(this->queue_mutex_);
+            std::lock_guard<std::mutex> lock(this->state_mutex_);
             this->stop_requested_ = true;
             if (!this->running_) {
                 return;
             }
         }
-        this->queue_signal_.notify_all();
+
+        this->queue_.request_shutdown();
+
         if (this->worker_.joinable()) {
             this->worker_.join();
         }
 
         {
-            std::lock_guard<std::mutex> lock(this->queue_mutex_);
+            std::lock_guard<std::mutex> lock(this->state_mutex_);
             this->running_ = false;
         }
 
@@ -307,91 +306,54 @@ Logger::Logger() :
 
     /** @brief Update process-level threshold. */
     void Logger::set_level(LogLevel level) {
-        std::lock_guard<std::mutex> lock(this->config_mutex_);
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
         this->level_ = level;
     }
 
     /** @brief Read process-level threshold. */
     LogLevel Logger::level() const {
-        std::lock_guard<std::mutex> lock(this->config_mutex_);
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
         return this->level_;
     }
 
     /** @brief Set active formatter or restore default formatter. */
     void Logger::set_formatter(LogFormatterPtr formatter) {
-        std::lock_guard<std::mutex> lock(this->config_mutex_);
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
         this->formatter_ = formatter ? std::move(formatter) : std::make_shared<PatternFormatter>();
     }
 
     void Logger::set_formatter(const std::string& pattern) {
-        std::lock_guard lock(this->config_mutex_);
+        std::lock_guard lock(this->state_mutex_);
         this->formatter_ = std::make_shared<PatternFormatter>(pattern);
     }
 
     void Logger::set_formatter(const char* pattern) {
-        std::lock_guard lock(this->config_mutex_);
+        std::lock_guard lock(this->state_mutex_);
         this->formatter_ = std::make_shared<PatternFormatter>(std::string(pattern));
     }
 
     /** @brief Append a sink to dispatch list. */
-    void Logger::add_handler(LogHandlerPtr handler) {
-        std::lock_guard<std::mutex> lock(this->config_mutex_);
+    void Logger::add_handler(handlers::LogHandlerPtr handler) {
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
         this->handlers_.push_back(std::move(handler));
     }
 
     /** @brief Remove all sinks. */
     void Logger::clear_handlers() {
-        std::lock_guard<std::mutex> lock(this->config_mutex_);
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
         this->handlers_.clear();
     }
 
     /** @brief Append a process-level filter. */
     void Logger::add_filter(LogFilterPtr filter) {
-        std::lock_guard<std::mutex> lock(this->config_mutex_);
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
         this->filters_.push_back(std::move(filter));
     }
 
     /** @brief Remove all process-level filters. */
     void Logger::clear_filters() {
-        std::lock_guard<std::mutex> lock(this->config_mutex_);
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
         this->filters_.clear();
-    }
-
-    /** @brief Add default console sink when none exists. */
-    void Logger::configure_default_console() {
-        std::lock_guard<std::mutex> lock(this->config_mutex_);
-        if (this->handlers_.empty()) {
-            this->handlers_.push_back(std::make_shared<ConsoleHandler>());
-        }
-    }
-
-    /** @brief Add file sink and convert exceptions to boolean status. */
-    bool Logger::add_file_handler(const std::string& path, bool append) {
-        return this->add_file_handler(std::filesystem::path(path), append);
-    }
-
-    /** @brief Add file sink and convert exceptions to boolean status. */
-    bool Logger::add_file_handler(const char* path, bool append) {
-        return this->add_file_handler(std::filesystem::path(path), append);
-    }
-
-    bool Logger::add_file_handler(const std::filesystem::path& path, bool append) {
-        try {
-            if (!std::filesystem::exists(path.parent_path())) {
-                throw std::filesystem::filesystem_error(
-                    path.parent_path().string() + " does not exist - cannot create a log file there",
-                    path.parent_path(),
-                    make_error_code(std::errc::no_such_file_or_directory)
-                );
-            }
-            const std::shared_ptr<FileHandler> handler = std::make_shared<FileHandler>(path, append);
-            handler->set_maximum_buffer_size(this->maximum_buffer_size_);
-            add_handler(handler);
-            return true;
-        } catch (std::exception& e) {
-            std::cerr << "Failed to add file sink: " << e.what() << std::endl;
-            return false;
-        }
     }
 
 /** @brief Start stdout/stderr capture helper. */
@@ -420,7 +382,7 @@ bool Logger::stdio_capture_active() const {
 
 /** @brief Query whether at least one sink is configured. */
 bool Logger::has_handlers() const {
-    std::lock_guard<std::mutex> lock(this->config_mutex_);
+    std::lock_guard<std::mutex> lock(this->state_mutex_);
     return !this->handlers_.empty();
 }
 
@@ -464,7 +426,7 @@ void Logger::log(
     }
 
     {
-        std::lock_guard<std::mutex> lock(this->config_mutex_);
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
         // Fast threshold check under config lock.
         if (static_cast<int>(level) < static_cast<int>(this->level_)) {
             return;
@@ -494,44 +456,31 @@ void Logger::log(
 
 /** @brief Push record into queue and signal worker. */
 void Logger::enqueue(LogRecord&& record) {
-    {
-        std::lock_guard<std::mutex> lock(this->queue_mutex_);
-        this->queue_.push_back(std::move(record));
-        ++this->in_flight_;
-    }
-    this->queue_signal_.notify_one();
+    this->queue_.submit(record);
 }
 
 /** @brief Worker loop that drains queue and dispatches to sinks. */
 void Logger::worker_loop() {
     while (true) {
         // Local record storage for current dispatch unit.
-        LogRecord record;
-        {
-            std::unique_lock<std::mutex> lock(this->queue_mutex_);
-            this->queue_signal_.wait(lock, [this]() {
-                return this->stop_requested_ || !this->queue_.empty();
-            });
+        std::optional<utility::TrackedDispatch<LogRecord>> next_value = this->queue_.listen_for_submission();
 
-            // Stop only when shutdown requested and queue already drained.
-            if (this->queue_.empty()) {
-                if (this->stop_requested_) {
-                    break;
-                }
+        if (!next_value.has_value()) {
+            if (this->queue_.accepting_submissions() && !this->stop_requested_) {
                 continue;
             }
-
-            // Move one record out of queue for processing outside lock.
-            record = std::move(this->queue_.front());
-            this->queue_.pop_front();
+            break;
         }
+
+        // Move one record out of queue for processing outside lock.
+        LogRecord& record = next_value->get();
 
         // Snapshot formatter/sinks/filters so processing uses consistent view.
         LogFormatterPtr formatter;
-        std::vector<LogHandlerPtr> sinks;
+        std::vector<handlers::LogHandlerPtr> sinks;
         std::vector<LogFilterPtr> filters;
         {
-            std::lock_guard<std::mutex> lock(this->config_mutex_);
+            std::lock_guard<std::mutex> lock(this->state_mutex_);
             formatter = this->formatter_;
             sinks = this->handlers_;
             filters = this->filters_;
@@ -560,32 +509,14 @@ void Logger::worker_loop() {
                 sink->write(record, formatted);
             }
         }
-
-        // Update in-flight count and notify flush waiters when queue is empty.
-        {
-            std::lock_guard<std::mutex> lock(this->queue_mutex_);
-            if (this->in_flight_ > 0) {
-                --this->in_flight_;
-            }
-            if (this->in_flight_ == 0 && this->queue_.empty()) {
-                this->flush_signal_.notify_all();
-            }
-        }
     }
 }
 
 /** @brief Wait for queue drain and flush all sink buffers. */
-void Logger::flush() {
+void Logger::flush() const {
+    std::vector<handlers::LogHandlerPtr> handlers;
     {
-        std::unique_lock<std::mutex> lock(this->queue_mutex_);
-        this->flush_signal_.wait(lock, [this]() {
-            return this->queue_.empty() && this->in_flight_ == 0;
-        });
-    }
-
-    std::vector<LogHandlerPtr> handlers;
-    {
-        std::lock_guard<std::mutex> lock(this->config_mutex_);
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
         handlers = this->handlers_;
     }
 
