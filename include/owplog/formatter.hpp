@@ -12,6 +12,7 @@
 #include <string>
 
 namespace owplog {
+    const std::string DEFAULT_PATTERN = "[%(asctime)s] %(levelname)s %(name)s %(filename)s::%(lineno)d - %(message)s";
 
 /**
  * @brief Base class for record-to-text formatting.
@@ -30,13 +31,13 @@ public:
      * @post Does not modify `record`.
      * @throws May throw implementation-defined formatting/allocation exceptions.
      */
-    virtual std::string format(const LogRecord& record) const = 0;
+    [[nodiscard]] virtual std::string format(const LogRecord& record) const = 0;
 };
 
 /**
  * @brief Formatter supporting tokenized string patterns.
  */
-class PatternFormatter final : public LogFormatter {
+class PatternFormatter : public LogFormatter {
 public:
     /**
      * @brief Construct a pattern formatter.
@@ -45,7 +46,9 @@ public:
      * @post Formatter stores the provided pattern.
      * @throws May propagate allocation failures while storing pattern text.
      */
-    explicit PatternFormatter(std::string pattern = "%T [%L] (%N:%t) %m");
+    explicit PatternFormatter(
+        std::string pattern = DEFAULT_PATTERN
+    );
     /**
      * @brief Format one record according to configured token pattern.
      * @param record Record to format.
@@ -54,11 +57,12 @@ public:
      * @post Returns a single-line payload without trailing newline.
      * @throws May propagate allocation failures and stream formatting exceptions.
      */
-    std::string format(const LogRecord& record) const override;
+    [[nodiscard]] std::string format(const LogRecord& record) const override;
 
 private:
     /** Format string template with token placeholders. */
     std::string pattern_;
+        std::string datefmt;
 };
 
 /** Shared-pointer alias for formatter objects. */

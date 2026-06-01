@@ -5,7 +5,7 @@
 void c_component_emit_logs(void) {
     LOG_NAMED_INFO("e2e.c", "Message from C component");
     owplog_logger_log(OWPLOG_LOG_INFO, "e2e.c", "message from C component");
-
+    LOG_WARNING("The c_component is still using subloggers - start rolling back that concept");
     const owplog_sublogger_handle h = owplog_logger_add_sublogger("e2e.c.sublogger");
     if (h > 0) {
         owplog_logger_log_sublogger(OWPLOG_LOG_WARNING, h, "warning via C sublogger handle");

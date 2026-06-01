@@ -3,7 +3,7 @@
 owplog is an asynchronous logging framework with:
 
 - A singleton logger with a dedicated worker thread and thread-safe queue
-- Extensible sinks (`ConsoleSink`, `FileSink`)
+- Extensible handlers (`ConsoleHandler`, `FileHandler`, `RouterHandler`,)
 - Extensible formatters (`PatternFormatter`) and filters (`LevelFilter`, `SubstringFilter`)
 - Optional capture of process `stdout`/`stderr` into log records
 - A small C ABI (`extern "C"`) for use from C, Python (`ctypes`), Fortran, and other languages
@@ -60,45 +60,44 @@ Pass `--help` to either script for all flags.
 ## C++ Usage
 
 ```cpp
-#include "owplog/logger.hpp"
+#include "owplog/owplog.h"
 
 int main() {
-    auto& logger = owplog::Logger::instance();
-    logger.configure_default_console();
-    logger.add_file_sink("app.log");
-    logger.set_level(owplog::LogLevel::Debug);
+    owplog::basicConfig("app.log", owplog::LogLevel::Debug);
 
-    logger.log(owplog::LogLevel::Info, "service started", "app.main", OWPLOG_SOURCE_LOCATION);
-    logger.log(owplog::LogLevel::Info, "mpi step", "solver", OWPLOG_SOURCE_LOCATION, owplog::LogOrigin::Application, 0);
+    owplog::log(owplog::LogLevel::Info, "service started", "app.main", OWPLOG_SOURCE_LOCATION);
+    owplog::info("mpi step", "solver", OWPLOG_SOURCE_LOCATION, owplog::LogOrigin::Application, 0);
     OWPLOG_LOG_ERROR_MSG("something failed");
-
-    logger.start_stdio_capture(true, true); // optional
-    // ... run code that writes to stdout/stderr ...
-    logger.stop_stdio_capture();
-
-    logger.flush();
     logger.shutdown();
 }
 ```
 
 ### Pattern Formatter Tokens
 
-- `%T`: timestamp (`YYYY-MM-DD HH:MM:SS.mmm`)
-- `%L`: log level
-- `%N`: logger name
-- `%m`: message
-- `%t`: thread id
-- `%f`: source file
-- `%l`: source line
-- `%F`: source function
-- `%o`: record origin (`app`, `stdout`, `stderr`, `c_api`)
-- `%r`: optional rank (`n/a` when unset)
-- `%g`: optional language/runtime label (`n/a` when unset)
+The formatting tokens are largely inspired by the python 
+[logging](https://docs.python.org/3/library/logging.html#logrecord-attributes) style. Available
+tokens are:
+
+- `%(asctime)s`: timestamp
+- `%(levelname)s`: log level name
+- `%(levelno)d`: The number of the log level
+- `%(name)s`: logger name
+- `%(message)s`: message
+- `%(thread)d`: thread id
+- `%(filename)s`: source file
+- `%(path)s`: The full path to the source file
+- `%(lineno)d`: source line
+- `%(funcName)s`: function name
+- `%(process)d`: process id
+- `%(relativeCreated)d`: The number of milliseconds since the application launched
+- `%(elapsed)s`: A formatted string representing the amount of time elapsed within the application formatted as `HH:MM:SS.mmm`
+- `%(rank)d`: The rank of the process if MPI is used
+- `%(language)s`: The identified programming language
 
 Default pattern:
 
 ```text
-%T [%L] (%N:%t) %m
+[%(asctime)s] %(levelname)s %(name)s %(filename)s::%(lineno)d - %(message)s
 ```
 
 ## C ABI Usage

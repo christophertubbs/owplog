@@ -133,12 +133,12 @@ PYBIND11_EMBEDDED_MODULE(owplog_native_bridge, m) {
             const std::string& logger_name,
             const std::string& message,
             const std::string& file_name,
-            int line_no,
+            const int line_no,
             const std::string& function_name,
-            int rank
+            const int rank
         ) {
-            owplog::SourceLocation source{file_name, line_no, function_name};
-            owplog::Logger::instance().log(
+            const owplog::SourceLocation source{file_name, line_no, function_name};
+            owplog::Logger::log(
                 owplog::LogLevel::Info,
                 message,
                 logger_name,
@@ -172,7 +172,7 @@ python_component()
 }
 #endif
 
-const std::string LOG_PATTERN = "%T [%L] (%N) %f:%l %F rank=%r lang=%g %m";
+const std::string LOG_PATTERN = "[%(asctime)s] %(levelname)s %(name)s %(relativeCreated)dms Elapsed %(filename)s::%(funcName)s#%(lineno)d - %(message)s";
 constexpr owplog::LogLevel LOG_LEVEL = owplog::LogLevel::Trace;
 constexpr size_t JOB_COUNT_PER_TYPE = 1000;
 const std::string APPLICATION_NAME = "End2End";
@@ -181,17 +181,20 @@ const std::filesystem::path LOG_PATH = ROOT_PATH / (APPLICATION_NAME + ".log");
 constexpr bool WRITE_TO_CONSOLE = true;
 constexpr bool APPEND_TO_LOG = false;
 
-inline owplog::Logger& setup_logging() {
-    auto& logger = owplog::Logger::instance();
-    logger.set_level(LOG_LEVEL);
-    logger.set_formatter(LOG_PATTERN);
+inline void setup_logging() {
+    owplog::LoggerConfigurationArguments configuration{
+        .format = LOG_PATTERN,
+        .level = LOG_LEVEL
+    };
+    configuration.handlers = std::vector<owplog::handlers::LogHandlerPtr>{
+        std::make_shared<owplog::handlers::FileHandler>(LOG_PATH, APPEND_TO_LOG)
+    };
+
     if (WRITE_TO_CONSOLE) {
-        logger.add_handler(std::make_shared<owplog::ConsoleHandler>());
+        configuration.handlers->push_back(std::make_shared<owplog::handlers::ConsoleHandler>());
     }
-    logger.add_handler(std::make_shared<owplog::FileHandler>(LOG_PATH, APPEND_TO_LOG));
-    logger.capture_stdio();
+    owplog::basicConfig(configuration);
     OWPLOG_LOG(owplog::LogLevel::Info, APPLICATION_NAME, "main started and logger configured");
-    return logger;
 }
 
 template<typename DurationType = std::chrono::milliseconds>
@@ -250,7 +253,7 @@ auto organize_jobs(const std::vector<std::function<void()>>& available_jobs) -> 
 }
 
 int main() {
-    owplog::Logger& logger = setup_logging();
+    setup_logging();
     ThreadPool pool = ThreadPool(5);
 
     std::vector<std::function<void()>> available_jobs;
@@ -288,6 +291,6 @@ int main() {
     }
 
     await_jobs(futures);
-    logger.log(owplog::LogLevel::Info, "main finished", APPLICATION_NAME, OWPLOG_SOURCE_LOCATION);
+    owplog::Logger::log(owplog::LogLevel::Info, "main finished", APPLICATION_NAME, OWPLOG_SOURCE_LOCATION);
     return 0;
 }
