@@ -19,8 +19,58 @@
 #include <regex>
 #include <stdexcept>
 #include <string_view>
+#include <chrono>
+#include <unistd.h>
 
 namespace owplog::utility {
+    using Clock = std::chrono::steady_clock;
+    using TimePoint = Clock::time_point;
+
+    const TimePoint INITIALIZATION_TIME = Clock::now();
+
+    template<typename ClockType>
+    [[nodiscard]] std::string format_duration(
+        const std::chrono::time_point<ClockType>& first,
+        const std::chrono::time_point<ClockType>& second,
+        const bool absolute = true
+    ) {
+        auto elapsed_duration = second - first;
+        bool was_negative = elapsed_duration < elapsed_duration.zero();
+        if (was_negative) {
+            elapsed_duration = -elapsed_duration;
+        }
+
+        const auto total_milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_duration).count();
+
+        constexpr long long milliseconds_per_second = 1000;
+        constexpr long long seconds_per_minute = 60;
+        constexpr long long minutes_per_hour = 60;
+
+        const long long total_seconds = total_milliseconds / milliseconds_per_second;
+        const long long millisecond_component = total_milliseconds % milliseconds_per_second;
+
+        const long long second_component = total_seconds % seconds_per_minute;
+        const long long total_minutes = total_seconds / seconds_per_minute;
+
+        const long long minute_component = total_minutes % minutes_per_hour;
+        const long long hour_component = total_minutes / minutes_per_hour;
+
+        std::ostringstream output_stream;
+        if (!absolute && was_negative) {
+            output_stream << "-";
+        }
+
+        output_stream << std::setw(2) << std::setfill('0') << hour_component;
+        output_stream << ":";
+        output_stream << std::setw(2) << std::setfill('0') << minute_component;
+        output_stream << ":";
+        output_stream << std::setw(2) << std::setfill('0') << second_component;
+        output_stream << ".";
+        output_stream << std::setw(3) << std::setfill('0') << millisecond_component;
+
+        return output_stream.str();
+    }
+
     inline bool string_type_endswith(const std::string_view text, const std::string_view suffix) {
         if (suffix.size() > text.size()) {
             return false;
@@ -524,11 +574,11 @@ namespace owplog::utility {
     };
 
     inline std::string replace_all_text(
-        const std::string& template_text,
+        const std::string_view& template_text,
         const std::string_view placeholder,
         const std::string_view replacement
     ) {
-        std::string result = template_text;
+        std::string result{template_text};
         size_t pos = 0;
         while ((pos = result.find(placeholder, pos)) != std::string::npos) {
             result.replace(pos, placeholder.length(), replacement);
@@ -537,7 +587,7 @@ namespace owplog::utility {
         return result;
     }
 
-    inline void throw_error(
+    [[noreturn]] inline void throw_error(
         const std::string& error_type,
         const std::string& error_message,
         const std::string& file,

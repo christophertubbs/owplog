@@ -15,7 +15,7 @@ find_package(Threads REQUIRED)
 add_library(owplog STATIC
     src/filter.cpp
     src/formatter.cpp
-    src/logger.cpp
+    src/core/logger.cpp
     include/owplog/utility.hpp
     include/owplog/handlers/log_handler.h
     include/owplog/handlers/file_handler.h
@@ -26,6 +26,10 @@ add_library(owplog STATIC
     include/owplog/owplog.h
     src/handlers/router.cpp
     include/owplog/handlers/router.h
+    include/owplog/core/core.h
+    include/owplog/handlers/handlers.h
+    include/owplog/core/logger.h
+    src/core/capture.cpp
 )
 add_library(OWPLOG::owplog ALIAS owplog)
 

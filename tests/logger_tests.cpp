@@ -1,5 +1,5 @@
 #include "owplog/c_api.h"
-#include "owplog/logger.hpp"
+#include "owplog/owplog.h"
 #include "owplog/handlers/log_handler.h"
 #include "owplog/handlers/console_handler.h"
 #include "owplog/handlers/file_handler.h"
@@ -52,14 +52,14 @@ std::filesystem::path temp_log_path(const std::string& name) {
 
 TEST(LoggerTest, HandlesConcurrentLogging) {
     // Shared singleton logger under test.
-    auto& logger = owplog::Logger::instance();
-    logger.shutdown();
-    logger.clear_handlers();
-    logger.clear_filters();
-    logger.set_level(owplog::LogLevel::Trace);
+    owplog::basicConfig();
+    owplog::Logger::shutdown();
+    owplog::Logger::clear_handlers();
+    owplog::Logger::clear_filters();
+    owplog::Logger::set_level(owplog::LogLevel::Trace);
 
     auto sink = std::make_shared<CountingSink>();
-    logger.add_handler(sink);
+    owplog::Logger::add_handler(sink);
 
     // Number of producer threads used for concurrency coverage.
     constexpr int thread_count = 8;
@@ -71,7 +71,7 @@ TEST(LoggerTest, HandlesConcurrentLogging) {
     for (int t = 0; t < thread_count; ++t) {
         threads.emplace_back([t]() {
             for (int i = 0; i < per_thread; ++i) {
-                owplog::Logger::instance().log(
+                owplog::Logger::log(
                     owplog::LogLevel::Info,
                     "message-" + std::to_string(i),
                     "thread-" + std::to_string(t));
@@ -83,40 +83,40 @@ TEST(LoggerTest, HandlesConcurrentLogging) {
         th.join();
     }
 
-    logger.flush();
+    owplog::Logger::flush();
     EXPECT_EQ(sink->count(), thread_count * per_thread);
 }
 
 TEST(LoggerTest, AppliesLevelFilter) {
-    auto& logger = owplog::Logger::instance();
-    logger.shutdown();
-    logger.clear_handlers();
-    logger.clear_filters();
-    logger.set_level(owplog::LogLevel::Trace);
+    owplog::basicConfig();
+    owplog::Logger::shutdown();
+    owplog::Logger::clear_handlers();
+    owplog::Logger::clear_filters();
+    owplog::Logger::set_level(owplog::LogLevel::Trace);
 
     auto sink = std::make_shared<CountingSink>();
-    logger.add_handler(sink);
-    logger.add_filter(std::make_shared<owplog::LevelFilter>(owplog::LogLevel::Warning));
+    owplog::Logger::add_handler(sink);
+    owplog::Logger::add_filter(std::make_shared<owplog::LevelFilter>(owplog::LogLevel::Warning));
 
-    logger.log(owplog::LogLevel::Info, "not-kept", "test");
-    logger.log(owplog::LogLevel::Warning, "kept", "test");
-    logger.log(owplog::LogLevel::Error, "kept-too", "test");
-    logger.flush();
+    owplog::Logger::log(owplog::LogLevel::Info, "not-kept", "test");
+    owplog::Logger::log(owplog::LogLevel::Warning, "kept", "test");
+    owplog::Logger::log(owplog::LogLevel::Error, "kept-too", "test");
+    owplog::Logger::flush();
 
     EXPECT_EQ(sink->count(), 2);
 }
 
 TEST(LoggerTest, CApiWritesToFile) {
-    auto& logger = owplog::Logger::instance();
-    logger.shutdown();
-    logger.clear_handlers();
-    logger.clear_filters();
-    logger.set_level(owplog::LogLevel::Trace);
-    logger.set_formatter(std::make_shared<owplog::PatternFormatter>("%f:%l %F rank=%r lang=%g %m"));
+    owplog::basicConfig();
+    owplog::Logger::shutdown();
+    owplog::Logger::clear_handlers();
+    owplog::Logger::clear_filters();
+    owplog::Logger::set_level(owplog::LogLevel::Trace);
+    owplog::Logger::set_formatter(std::make_shared<owplog::PatternFormatter>("%f:%l %F rank=%r lang=%g %m"));
 
     // Output path used by upstream logger sink.
     const auto path = temp_log_path("owplog_c_api");
-    logger.add_handler(std::make_shared<owplog::handlers::FileHandler>(path.string(), false));
+    owplog::Logger::add_handler(std::make_shared<owplog::handlers::FileHandler>(path.string(), false));
 
     const owplog_sublogger_handle handle = owplog_logger_add_sublogger("c.test.sub");
     ASSERT_GT(handle, 0);
@@ -125,7 +125,7 @@ TEST(LoggerTest, CApiWritesToFile) {
     owplog_logger_log_sublogger(OWPLOG_LOG_INFO, handle, "hello from sublogger handle");
     const owplog_log_meta meta{"unit_test.c", 321, "test_fn", "python", 7};
     owplog_logger_log_ex(OWPLOG_LOG_INFO, "c.test.meta", "hello from ex", &meta);
-    logger.flush();
+    owplog::Logger::flush();
 
     std::ifstream in(path);
     ASSERT_TRUE(in.is_open());
@@ -142,23 +142,20 @@ TEST(LoggerTest, CApiWritesToFile) {
 }
 
 TEST(LoggerTest, CapturesStdout) {
-    auto& logger = owplog::Logger::instance();
-    logger.shutdown();
-    logger.clear_handlers();
-    logger.clear_filters();
-    logger.set_level(owplog::LogLevel::Trace);
+    owplog::basicConfig();
+    owplog::Logger::shutdown();
+    owplog::Logger::clear_handlers();
+    owplog::Logger::clear_filters();
+    owplog::Logger::set_level(owplog::LogLevel::Trace);
 
     // Output path used for stdout capture assertions.
     const auto path = temp_log_path("owplog_capture");
-    logger.add_handler(std::make_shared<owplog::handlers::FileHandler>(path.string(), false));
+    owplog::Logger::add_handler(std::make_shared<owplog::handlers::FileHandler>(path.string(), false));
 
-    ASSERT_TRUE(logger.capture_stdio(true, false));
     std::printf("captured-line-from-stdout\n");
     std::fflush(stdout);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    logger.stop_stdio_capture();
-    logger.flush();
-
+    owplog::Logger::shutdown();
     std::ifstream in(path);
     ASSERT_TRUE(in.is_open());
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());

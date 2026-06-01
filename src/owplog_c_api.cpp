@@ -1,6 +1,6 @@
 #include "owplog/c_api.h"
 
-#include "owplog/logger.hpp"
+#include "owplog/owplog.h"
 
 #include <iostream>
 #include <mutex>
@@ -30,7 +30,7 @@ owplog::LogLevel as_level(int level) {
  * @return True when records can be forwarded to configured sinks.
  */
 bool has_upstream_logger() {
-    return owplog::Logger::instance().has_handlers();
+    return owplog::Logger::has_handlers();
 }
 
 /**
@@ -69,7 +69,7 @@ void submit_or_fallback(
     }
 
     if (has_upstream_logger()) {
-        owplog::Logger::instance().log(level, message, logger_name, source, owplog::LogOrigin::CAbi, rank, language);
+        owplog::Logger::log(level, message, logger_name, source, owplog::LogOrigin::CAbi, rank, language);
         return;
     }
 
@@ -131,7 +131,7 @@ std::string resolve_sublogger_name(owplog_sublogger_handle sublogger_handle) {
     if (sublogger_handle <= 0) {
         return "owplog.c";
     }
-    const std::size_t index = static_cast<std::size_t>(sublogger_handle - 1);
+    const auto index = static_cast<std::size_t>(sublogger_handle - 1);
     if (index >= g_sublogger_names.size()) {
         return "owplog.c";
     }
@@ -217,7 +217,7 @@ void owplog_logger_log_sublogger(int level, owplog_sublogger_handle sublogger_ha
 }
 
 void owplog_logger_log_full(
-    int level,
+    const int level,
     const char* logger_name,
     const char* message,
     const char* language,

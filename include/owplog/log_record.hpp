@@ -12,6 +12,8 @@
 #include <iomanip>
 #include <string>
 #include <thread>
+#include <filesystem>
+#include <iostream>
 
 #include "utility.hpp"
 
@@ -41,43 +43,45 @@ enum class LogOrigin {
         }
     }
 
-/**
- * @brief Optional source location metadata for a log call.
- * @note Empty strings / zero line indicate unavailable source data.
- */
-struct SourceLocation {
-    /** Source filename. */
-    std::string file;
-    /** Source line number. */
-    int line = 0;
-    /** Source function name. */
-    std::string function;
-};
+    /**
+     * @brief Optional source location metadata for a log call.
+     * @note Empty strings / zero line indicate unavailable source data.
+     */
+    struct SourceLocation {
+        /** Source filename. */
+        std::string file;
+        /** Source line number. */
+        int line = 0;
+        /** Source function name. */
+        std::string function;
+    };
 
-/**
- * @brief Fully populated log message payload consumed by sinks.
- * @note `rank < 0` and empty `language` indicate optional metadata is unset.
- */
-struct LogRecord {
-    /** Timestamp when the record was created. */
-    std::chrono::system_clock::time_point timestamp;
-    /** Severity level associated with this record. */
-    LogLevel level = LogLevel::Info;
-    /** Logical logger name (component/module). */
-    std::string logger_name;
-    /** Final message content. */
-    std::string message;
-    /** Producer thread identifier. */
-    std::thread::id thread_id;
-    /** Optional source location metadata. */
-    SourceLocation source;
-    /** Origin channel for this record. */
-    LogOrigin origin = LogOrigin::Application;
-    /** Optional HPC rank (negative when unknown/unset). */
-    int rank = -1;
-    /** Optional caller language/runtime label (empty when unknown). */
-    std::string language;
-};
+    /**
+     * @brief Fully populated log message payload consumed by sinks.
+     * @note `rank < 0` and empty `language` indicate optional metadata is unset.
+     */
+    struct LogRecord {
+        /** Timestamp when the record was created. */
+        std::chrono::system_clock::time_point timestamp;
+        /** Severity level associated with this record. */
+        LogLevel level = LogLevel::Info;
+        /** Logical logger name (component/module). */
+        std::string logger_name;
+        /** Final message content. */
+        std::string message;
+        /** Producer thread identifier. */
+        std::thread::id thread_id;
+        /** Optional source location metadata. */
+        SourceLocation source;
+        /** Origin channel for this record. */
+        LogOrigin origin = LogOrigin::Application;
+        /** Optional HPC rank (negative when unknown/unset). */
+        int rank = -1;
+        /** Optional caller language/runtime label (empty when unknown). */
+        std::string language;
+        utility::TimePoint monotonic_time = utility::Clock::now();
+        pid_t process_id = getpid();
+    };
 
     struct LogFormatRules
     {
@@ -86,6 +90,7 @@ struct LogRecord {
 
     const std::map<std::string_view, std::string> RECORD_FIELD_TO_PLACEHOLDER_MAP = {
         {"rank", "%(rank)d"},
+        {"language", "%(language)s"},
         {"level", "%(levelno}d"},
         {"level_name", "%(levelname)s"},
         {"logger_name", "%(name)s"},
@@ -94,7 +99,12 @@ struct LogRecord {
         {"thread_id", "%(thread)d"},
         {"origin", "%(origin)s"},
         {"file", "%(filename)s"},
-        {"function", "%(funcName)s"}
+        {"function", "%(funcName)s"},
+        {"line", "%(lineno)d"},
+        {"relativeCreated", "%(relativeCreated)d"},
+        {"pathname", "%(pathname)s"},
+        {"elapsed", "%(elapsed)s"},
+        {"process", "%(process)d"}
     };
 
     const std::map<std::string_view, std::function<std::string(const LogRecord&, const LogFormatRules&)>> RECORD_FIELD_TO_VALUE = {
@@ -154,7 +164,15 @@ struct LogRecord {
         },
         {
             "file",
-            [](const LogRecord& record, const LogFormatRules& rules) { return record.source.file; }
+            [](const LogRecord& record, const LogFormatRules& rules) {
+                return std::filesystem::path(record.source.file).filename().string();
+            }
+        },
+        {
+            "pathname",
+            [](const LogRecord& record, const LogFormatRules& rules) {
+                return record.source.file;
+            }
         },
         {
             "language",
@@ -167,13 +185,36 @@ struct LogRecord {
         {
             "line",
             [](const LogRecord& record, const LogFormatRules& rules) { return std::to_string(record.source.line); }
+        },
+        {
+            "relativeCreated",
+            [](const LogRecord& record, const LogFormatRules& rules) {
+                const auto elapsed_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    record.monotonic_time.time_since_epoch() - utility::INITIALIZATION_TIME.time_since_epoch()
+                );
+                return std::to_string(elapsed_duration.count());
+            }
+        },
+        {
+            "elapsed",
+            [](const LogRecord& record, const LogFormatRules& rules) {
+                std::string duration = utility::format_duration(
+                    record.monotonic_time,
+                    utility::INITIALIZATION_TIME
+                );
+                return duration;
+            }
+        },
+        {
+            "process",
+            [](const LogRecord& record, const LogFormatRules& rules) { return std::to_string(record.process_id); }
         }
     };
 
     inline std::string populate_record_field(
-        const std::string& template_string,
+        const std::string_view& template_string,
         const LogRecord& record,
-        const std::string& field,
+        const std::string_view& field,
         const LogFormatRules& rules
     ) {
         const std::string& placeholder = RECORD_FIELD_TO_PLACEHOLDER_MAP.at(field);
@@ -184,15 +225,20 @@ struct LogRecord {
 
     inline std::string format_log_record(
         const LogRecord& record,
-        const std::string& pattern,
+        const std::string_view& pattern,
         const std::string& date_fmt = "%Y-%m-%d %H:%M:%S"
     ) {
-        std::string result = pattern;
+        std::string result{pattern};
         const LogFormatRules rules{
             .date_format = date_fmt
         };
         for (const auto& [field, retriever] : RECORD_FIELD_TO_PLACEHOLDER_MAP) {
-            result = populate_record_field(result, record, field, rules);
+            try {
+                result = populate_record_field(result, record, field, rules);
+            } catch (const std::exception& exc) {
+                std::cerr << "Failed to populate field '" << field << "' when formatting a log record in " << __FILE__ << "::" << __func__ << "#" << __LINE__ << ": " << exc.what() << std::endl;
+                throw exc;
+            }
         }
 
         return std::move(result);
