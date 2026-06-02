@@ -597,7 +597,7 @@ namespace owplog::utility {
     ) {
         std::string formatted_message = replace_all_text(
             message_format,
-            "%(message)",
+            "%(message)s",
             error_message
         );
         formatted_message = replace_all_text(
@@ -608,7 +608,7 @@ namespace owplog::utility {
 
         formatted_message = replace_all_text(
             formatted_message,
-            "%(filename)",
+            "%(filename)s",
             file
         );
 
@@ -658,7 +658,7 @@ namespace owplog::utility {
     }
 
 }
-#define DEFAULT_ERROR_FORMAT "%(filename)s%(funcName)s#%(lineno)d %(exc_info)s: %(message)s"
+#define DEFAULT_ERROR_FORMAT "%(filename)s %(funcName)s#%(lineno)d %(exc_info)s: %(message)s"
 #define RUNTIME_ERROR(message, fmt) owplog::utility::throw_error("runtime_error", message, __FILE__, __LINE__, __func__, fmt)
 #define THROW_RUNTIME_ERROR(message) owplog::utility::throw_error("runtime_error", message, __FILE__, __LINE__, __func__, DEFAULT_ERROR_FORMAT)
 #define LOGIC_ERROR(message, fmt) owplog::utility::throw_error("logic_error", message, __FILE__, __LINE__, __func__, fmt)

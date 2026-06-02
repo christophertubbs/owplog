@@ -24,7 +24,6 @@ add_library(owplog STATIC
     src/handlers/file_handler.cpp
     src/handlers/console_handler.cpp
     include/owplog/owplog.h
-    src/handlers/router.cpp
     include/owplog/handlers/router.h
     include/owplog/core/core.h
     include/owplog/handlers/handlers.h

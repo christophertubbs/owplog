@@ -16,5 +16,6 @@ namespace owplog::handlers {
     using handlers::FileHandler;
     using handlers::LogRouter;
     using handlers::ConsoleHandler;
+    using handlers::FileHandlerFactory;
 }
 #endif //OWPLOG_HANDLERS_H

@@ -91,7 +91,7 @@ namespace owplog::handlers {
             void reset_error_count();
 
             /** The maximum number of bytes that may be written prior to flushing */
-            std::atomic<std::size_t> maximum_buffer_size_ = 1024 * 1024;
+            std::size_t maximum_buffer_size_ = 1024 * 1024;
             /** A buffer to write to prior to flushing */
             std::string buffer_;
 
@@ -101,9 +101,9 @@ namespace owplog::handlers {
             /** Handler-local filters applied before write. */
             utility::ProtectedVector<LogFilterPtr> filters_;
             ErrorPolicy error_policy_{ErrorPolicy::Ignore};
-            std::atomic<std::size_t> error_count_ = 0;
-            std::atomic<bool> enabled_ = true;
-            std::atomic<std::size_t> error_limit_ = 5;
+            std::size_t error_count_ = 0;
+            bool enabled_ = true;
+            std::size_t error_limit_ = 5;
     };
 
     /** Shared-pointer alias for handler objects. */

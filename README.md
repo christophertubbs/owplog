@@ -100,6 +100,14 @@ Default pattern:
 [%(asctime)s] %(levelname)s %(name)s %(filename)s::%(lineno)d - %(message)s
 ```
 
+Which will provide output similar to:
+
+```text
+[2026-06-01 16:32:50] INFO python_consumer python_consumer.py::run_workflow#339 - Iteration 0 complete
+```
+
+Log invocation style may change values in the output - calling log functions 
+
 ## C ABI Usage
 
 Header: `include/owplog/c_api.h`

@@ -172,7 +172,7 @@ python_component()
 }
 #endif
 
-const std::string LOG_PATTERN = "[%(asctime)s] %(levelname)s %(name)s %(relativeCreated)dms Elapsed %(filename)s::%(funcName)s#%(lineno)d - %(message)s";
+const std::string LOG_PATTERN = "[%(asctime)s / %(elapsed)s] %(levelname)s %(name)s %(filename)s::%(funcName)s#%(lineno)d - %(message)s";
 constexpr owplog::LogLevel LOG_LEVEL = owplog::LogLevel::Trace;
 constexpr size_t JOB_COUNT_PER_TYPE = 1000;
 const std::string APPLICATION_NAME = "End2End";
@@ -181,13 +181,19 @@ const std::filesystem::path LOG_PATH = ROOT_PATH / (APPLICATION_NAME + ".log");
 constexpr bool WRITE_TO_CONSOLE = true;
 constexpr bool APPEND_TO_LOG = false;
 
-inline void setup_logging() {
+void setup_logging() {
     owplog::LoggerConfigurationArguments configuration{
         .format = LOG_PATTERN,
         .level = LOG_LEVEL
     };
+
     configuration.handlers = std::vector<owplog::handlers::LogHandlerPtr>{
-        std::make_shared<owplog::handlers::FileHandler>(LOG_PATH, APPEND_TO_LOG)
+        std::make_shared<owplog::handlers::FileHandler>(LOG_PATH, APPEND_TO_LOG),
+        std::make_shared<owplog::handlers::LogRouter>(
+            "%(name)s.log",
+            std::vector<std::string_view>{"logger_name"},
+            std::make_shared<owplog::handlers::FileHandlerFactory>(ROOT_PATH, APPEND_TO_LOG)
+        )
     };
 
     if (WRITE_TO_CONSOLE) {
