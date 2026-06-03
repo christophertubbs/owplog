@@ -30,7 +30,7 @@ owplog::LogLevel as_level(int level) {
  * @return True when records can be forwarded to configured sinks.
  */
 bool has_upstream_logger() {
-    return owplog::Logger::has_handlers();
+    return owplog::has_handlers();
 }
 
 /**
@@ -69,7 +69,7 @@ void submit_or_fallback(
     }
 
     if (has_upstream_logger()) {
-        owplog::Logger::log(level, message, logger_name, source, owplog::LogOrigin::CAbi, rank, language);
+        owplog::log(level, message, logger_name, source, owplog::LogOrigin::CAbi, rank, language);
         return;
     }
 

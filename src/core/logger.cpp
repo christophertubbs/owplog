@@ -4,28 +4,22 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cstdio>
 #include <memory>
 #include <utility>
 #include <thread>
 
-#include <unistd.h>
-
+#include "owplog/owplog.h"
 #include "owplog/handlers/file_handler.h"
 #include "owplog/handlers/console_handler.h"
-#include "owplog/handlers/router.h"
 
 namespace owplog::core {
-
-    /** @brief Access global logger singleton instance. */
-    Logger& Logger::instance() {
-        static Logger logger;
-        return logger;
+    bool Logger::is_configured() const {
+        std::lock_guard lock(this->state_mutex_);
+        return this->is_configured_;
     }
 
-    bool Logger::is_configured() {
-        std::lock_guard lock(instance().state_mutex_);
-        return instance().is_configured_;
+    void Logger::configure(const LoggerConfigurationArguments& configuration) {
+        this->configure_internal(configuration);
     }
 
     void Logger::configure_internal(const LoggerConfigurationArguments& configuration) {
@@ -39,7 +33,9 @@ namespace owplog::core {
 
         if (configuration.handlers.has_value() && !configuration.handlers->empty() && configuration.filename.has_value()) {
             THROW_INVALID_ARGUMENT("Cannot specify both handlers and filename");
-        } else if (configuration.handlers.has_value() && !configuration.handlers->empty()) {
+        }
+
+        if (configuration.handlers.has_value() && !configuration.handlers->empty()) {
             this->handlers_.clear();
             for (const auto& handler : *configuration.handlers) {
                 this->handlers_.push_back(handler);
@@ -108,12 +104,13 @@ namespace owplog::core {
             return;
         }
         this->stop_requested_ = false;
+        this->capture_stdio();
         this->worker_ = std::thread(&Logger::worker_loop, this);
         this->running_ = true;
     }
 
     void Logger::shutdown() {
-        instance().internal_shutdown();
+        this->internal_shutdown();
     }
 
     /** @brief Stop stdio capture and terminate worker thread. */
@@ -134,63 +131,63 @@ namespace owplog::core {
         }
         this->running_ = false;
 
-        this->flush_internal();
+        this->flush();
     }
 
     /** @brief Update process-level threshold. */
     void Logger::set_level(LogLevel level) {
-        std::lock_guard<std::mutex> lock(instance().state_mutex_);
-        instance().level_ = level;
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
+        this->level_ = level;
     }
 
     /** @brief Read process-level threshold. */
-    LogLevel Logger::level() {
-        std::lock_guard<std::mutex> lock(instance().state_mutex_);
-        return instance().level_;
+    LogLevel Logger::level() const {
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
+        return this->level_;
     }
 
     /** @brief Set active formatter or restore default formatter. */
     void Logger::set_formatter(LogFormatterPtr formatter) {
-        std::lock_guard<std::mutex> lock(instance().state_mutex_);
-        instance().formatter_ = formatter ? std::move(formatter) : std::make_shared<PatternFormatter>();
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
+        this->formatter_ = formatter ? std::move(formatter) : std::make_shared<PatternFormatter>();
     }
 
     void Logger::set_formatter(const std::string& pattern) {
-        std::lock_guard lock(instance().state_mutex_);
-        instance().formatter_ = std::make_shared<PatternFormatter>(pattern);
+        std::lock_guard lock(this->state_mutex_);
+        this->formatter_ = std::make_shared<PatternFormatter>(pattern);
     }
 
     void Logger::set_formatter(const char* pattern) {
-        std::lock_guard lock(instance().state_mutex_);
-        instance().formatter_ = std::make_shared<PatternFormatter>(std::string(pattern));
+        std::lock_guard lock(this->state_mutex_);
+        this->formatter_ = std::make_shared<PatternFormatter>(std::string(pattern));
     }
 
     /** @brief Append a sink to dispatch list. */
-    void Logger::add_handler(handlers::LogHandlerPtr handler) {
-        std::lock_guard<std::mutex> lock(instance().state_mutex_);
-        instance().handlers_.push_back(std::move(handler));
+    void Logger::add_handler(LogHandlerPtr handler) {
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
+        this->handlers_.push_back(std::move(handler));
     }
 
     /** @brief Remove all sinks. */
     void Logger::clear_handlers() {
-        std::lock_guard<std::mutex> lock(instance().state_mutex_);
-        instance().handlers_.clear();
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
+        this->handlers_.clear();
     }
 
     /** @brief Append a process-level filter. */
     void Logger::add_filter(LogFilterPtr filter) {
-        std::lock_guard<std::mutex> lock(instance().state_mutex_);
-        instance().filters_.push_back(std::move(filter));
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
+        this->filters_.push_back(std::move(filter));
     }
 
     /** @brief Remove all process-level filters. */
     void Logger::clear_filters() {
-        std::lock_guard<std::mutex> lock(instance().state_mutex_);
-        instance().filters_.clear();
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
+        this->filters_.clear();
     }
 
     /** @brief Start stdout/stderr capture helper. */
-    bool Logger::capture_stdio(bool capture_stdout, bool capture_stderr) {
+    bool Logger::capture_stdio(const bool capture_stdout, const bool capture_stderr) {
         if (!capture_stdout && !capture_stderr) {
             return false;
         }
@@ -209,14 +206,14 @@ namespace owplog::core {
     }
 
     /** @brief Query whether stdio capture helper is active. */
-    bool Logger::stdio_capture_active() {
+    bool Logger::stdio_capture_active() const {
         return this->stdio_capture_ && this->stdio_capture_->active();
     }
 
     /** @brief Query whether at least one sink is configured. */
-    bool Logger::has_handlers() {
-        std::lock_guard<std::mutex> lock(instance().state_mutex_);
-        return !instance().handlers_.empty();
+    bool Logger::has_handlers() const {
+        std::lock_guard<std::mutex> lock(this->state_mutex_);
+        return !this->handlers_.empty();
     }
 
     /**
@@ -244,14 +241,14 @@ namespace owplog::core {
      * @param rank Optional rank metadata.
      * @param language Optional caller language/runtime label.
      */
-    void Logger::log_message(
-        LogLevel level,
-        std::string_view message,
-        std::string_view logger_name,
-        SourceLocation source,
-        LogOrigin origin,
-        int rank,
-        std::string_view language
+    void Logger::log(
+        const LogLevel level,
+        const std::string_view message,
+        const std::string_view logger_name,
+        const SourceLocation& source,
+        const LogOrigin origin,
+        const int rank,
+        const std::string_view language
     ) {
         // Reject disabled sentinel level immediately.
         if (level == LogLevel::Off) {
@@ -284,19 +281,9 @@ namespace owplog::core {
         record.rank = rank;
         record.language = std::string(language);
 
-        this->enqueue(std::move(record));
-    }
-
-    void Logger::log(
-        LogLevel level,
-        std::string_view message,
-        std::string_view logger_name,
-        SourceLocation source,
-        LogOrigin origin,
-        int rank,
-        std::string_view language
-    ) {
-        instance().log_message(level, message, logger_name, std::move(source), origin, rank, language);
+        if (this->passes_filters(record)) {
+            this->enqueue(std::move(record));
+        }
     }
 
     /** @brief Push record into queue and signal worker. */
@@ -314,7 +301,10 @@ namespace owplog::core {
                 if (this->queue_.accepting_submissions() && !this->stop_requested_) {
                     continue;
                 }
-                break;
+                next_value = this->queue_.next();
+                if (!next_value.has_value()) {
+                    break;
+                }
             }
 
             // Move one record out of queue for processing outside lock.
@@ -357,12 +347,7 @@ namespace owplog::core {
         }
     }
 
-    void Logger::flush() {
-        instance().flush_internal();
-    }
-
-    /** @brief Wait for queue drain and flush all sink buffers. */
-    void Logger::flush_internal() {
+    void Logger::flush() const {
         std::lock_guard<std::mutex> lock(this->state_mutex_);
         const std::vector<handlers::LogHandlerPtr> handlers = this->handlers_;
 
@@ -372,5 +357,4 @@ namespace owplog::core {
             }
         }
     }
-
 } // namespace owplog

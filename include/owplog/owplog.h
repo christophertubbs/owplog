@@ -23,6 +23,24 @@ namespace owplog {
     using owplog::SubstringFilter;
     using owplog::LevelFilter;
     using handlers::LogHandlerPtr;
+    using core::shutdown;
+    using core::set_level;
+    using core::level;
+    using core::set_formatter;
+    using core::add_handler;
+    using core::clear_handlers;
+    using core::clear_filters;
+    using core::add_filter;
+    using core::has_handlers;
+    using core::is_configured;
+    using core::log;
+    using core::error;
+    using core::warning;
+    using core::info;
+    using core::debug;
+    using core::critical;
+    using core::flush;
+    using core::configure;
 
     const std::map<std::string, LogLevel> LOG_LEVEL_MAP = {
         {"DEBUG", LogLevel::Debug},
@@ -78,7 +96,7 @@ namespace owplog {
             .filename = filename,
             .format = format,
         };
-        Logger::configure(args);
+        core::configure(args);
     }
 
     inline void basicConfig(
@@ -92,11 +110,11 @@ namespace owplog {
             .datefmt = datefmt,
         };
 
-        Logger::configure(args);
+        core::configure(args);
     }
 
     inline void basicConfig(const LoggerConfigurationArguments& configuration) {
-        Logger::configure(configuration);
+        core::configure(configuration);
     }
 
     inline void basicConfig() {
@@ -109,17 +127,17 @@ namespace owplog {
 
 /** Convenience macro for full custom log call with explicit level/name/message. */
 #define OWPLOG_LOG(level, logger_name, message) \
-::owplog::core::Logger::log((level), (message), (logger_name), OWPLOG_SOURCE_LOCATION)
+::owplog::core::log((level), (message), (logger_name), OWPLOG_SOURCE_LOCATION)
 
 /** Convenience macro for INFO-level messages on default logger name. */
 #define OWPLOG_LOG_INFO_MSG(message) \
-::owplog::core::Logger::info((message), "owplog", OWPLOG_SOURCE_LOCATION)
+::owplog::core::info((message), "owplog", OWPLOG_SOURCE_LOCATION)
 
 /** Convenience macro for WARNING-level messages on default logger name. */
 #define OWPLOG_LOG_WARNING_MSG(message) \
-::owplog::core::Logger::warning((message), "owplog", OWPLOG_SOURCE_LOCATION)
+::owplog::core::warning((message), "owplog", OWPLOG_SOURCE_LOCATION)
 
 /** Convenience macro for ERROR-level messages on default logger name. */
 #define OWPLOG_LOG_ERROR_MSG(message) \
-::owplog::core::Logger::error((message), "owplog", OWPLOG_SOURCE_LOCATION)
+::owplog::core::error((message), "owplog", OWPLOG_SOURCE_LOCATION)
 #endif //OWPLOG_OWPLOG_H
