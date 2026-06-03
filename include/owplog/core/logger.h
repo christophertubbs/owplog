@@ -40,13 +40,16 @@ namespace owplog::core {
      */
     class Logger final {
         public:
+            Logger() : Logger(LoggerConfigurationArguments{}) {}
+            explicit Logger(const LoggerConfigurationArguments& configuration);
+            ~Logger();
             /**
              * @brief Stop worker thread and optional stdio capture.
              * @pre None.
              * @post Worker thread is stopped and stdio capture is inactive.
              * @note Safe to call multiple times.
              */
-            static void shutdown();
+            void shutdown();
 
             /**
              * @brief Set process-level minimum accepted level.
@@ -55,7 +58,7 @@ namespace owplog::core {
              * @post Future records below `level` are dropped before queueing.
              * @throws No intentional exceptions.
              */
-            static void set_level(LogLevel level);
+            void set_level(LogLevel level);
             /**
              * @brief Read current process-level threshold.
              * @return Configured level threshold.
@@ -63,7 +66,7 @@ namespace owplog::core {
              * @post Logger state is unchanged.
              * @throws No intentional exceptions.
              */
-            static LogLevel level();
+            LogLevel level() const;
 
             /**
              * @brief Replace active formatter.
@@ -72,14 +75,14 @@ namespace owplog::core {
              * @post Formatter used by subsequent records is updated.
              * @throws May propagate allocation failures when restoring default formatter.
              */
-            static void set_formatter(LogFormatterPtr formatter);
+            void set_formatter(LogFormatterPtr formatter);
 
             /**
              * @brief Replace active formatter with a basic string formatter
              * @param pattern The pattern string for a string pattern formatter
              */
-            static void set_formatter(const std::string& pattern);
-            static void set_formatter(const char* pattern);
+            void set_formatter(const std::string& pattern);
+            void set_formatter(const char* pattern);
             /**
              * @brief Add a sink destination.
              * @param handler Handler instance to append.
@@ -87,14 +90,14 @@ namespace owplog::core {
              * @post Handler list contains appended sink pointer.
              * @throws May propagate allocation failures when growing sink storage.
              */
-            static void add_handler(handlers::LogHandlerPtr handler);
+            void add_handler(handlers::LogHandlerPtr handler);
             /**
              * @brief Remove all configured sinks.
              * @pre None.
              * @post Handler list is empty.
              * @throws No intentional exceptions.
              */
-            static void clear_handlers();
+            void clear_handlers();
 
             /**
              * @brief Add a process-level filter.
@@ -103,14 +106,14 @@ namespace owplog::core {
              * @post Filter list contains appended filter pointer.
              * @throws May propagate allocation failures when growing filter storage.
              */
-            static void add_filter(LogFilterPtr filter);
+            void add_filter(LogFilterPtr filter);
             /**
              * @brief Remove all process-level filters.
              * @pre None.
              * @post Process-level filter list is empty.
              * @throws No intentional exceptions.
              */
-            static void clear_filters();
+            void clear_filters();
             /**
              * @brief Check whether stdio capture is active.
              * @return True when capture helper is active.
@@ -118,7 +121,7 @@ namespace owplog::core {
              * @post Logger state is unchanged.
              * @throws No intentional exceptions.
              */
-            bool stdio_capture_active();
+            bool stdio_capture_active() const;
             /**
              * @brief Check whether the logger currently has configured sinks.
              * @return True when at least one handler is configured.
@@ -126,8 +129,9 @@ namespace owplog::core {
              * @post Logger state is unchanged.
              * @throws No intentional exceptions.
              */
-            static bool has_handlers();
-            static bool is_configured();
+            bool has_handlers() const;
+
+            bool is_configured() const;
 
             /**
              * @brief Enqueue one log record.
@@ -143,79 +147,69 @@ namespace owplog::core {
              * @post Rejected records (threshold/off) leave queue unchanged.
              * @throws May propagate allocation failures while creating queue records.
              */
-            static void log(
+            void log(
                 LogLevel level,
                 std::string_view message,
                 std::string_view logger_name = "owplog",
-                SourceLocation source = {},
+                const SourceLocation& source = {},
                 LogOrigin origin = LogOrigin::Application,
                 int rank = -1,
                 std::string_view language = "C++"
             );
 
-            void log_message(
-                LogLevel level,
-                std::string_view message,
-                std::string_view logger_name = "owplog",
-                SourceLocation source = {},
-                LogOrigin origin = LogOrigin::Application,
-                int rank = -1,
-                std::string_view language = "C++"
-                );
-
-            static void error(
+            void error(
                 const std::string_view message,
                 const std::string_view logger_name = "owplog",
-                SourceLocation source = {},
+                const SourceLocation& source = {},
                 const LogOrigin origin = LogOrigin::Application,
                 const int rank = -1,
                 const std::string_view language = "C++"
             ) {
-                log(LogLevel::Error, message, logger_name, std::move(source), origin, rank, language);
+                log(LogLevel::Error, message, logger_name, source, origin, rank, language);
             }
 
-            static void warning(
+            void warning(
                 const std::string_view message,
                 const std::string_view logger_name = "owplog",
-                SourceLocation source = {},
+                const SourceLocation& source = {},
                 const LogOrigin origin = LogOrigin::Application,
                 const int rank = -1,
                 const std::string_view language = "C++"
             ) {
-                log(LogLevel::Warning, message, logger_name, std::move(source), origin, rank, language);
+                log(LogLevel::Warning, message, logger_name, source, origin, rank, language);
             }
 
-            static void info(
+            void info(
                 const std::string_view message,
                 const std::string_view logger_name = "owplog",
-                SourceLocation source = {},
+                const SourceLocation& source = {},
                 const LogOrigin origin = LogOrigin::Application,
                 const int rank = -1,
                 const std::string_view language = "C++"
             ) {
-                log(LogLevel::Info, message, logger_name, std::move(source), origin, rank, language);
+                log(LogLevel::Info, message, logger_name, source, origin, rank, language);
             }
 
-            static void debug(
+            void debug(
                 const std::string_view message,
                 const std::string_view logger_name = "owplog",
-                SourceLocation source = {},
+                const SourceLocation& source = {},
                 const LogOrigin origin = LogOrigin::Application,
                 const int rank = -1,
                 const std::string_view language = "C++"
             ) {
-                log(LogLevel::Debug, message, logger_name, std::move(source), origin, rank, language);
+                log(LogLevel::Debug, message, logger_name, source, origin, rank, language);
             }
 
-            static void critical(
+            void critical(
                 const std::string_view message,
                 const std::string_view logger_name = "owplog",
-                SourceLocation source = {},
+                const SourceLocation& source = {},
                 const LogOrigin origin = LogOrigin::Application,
                 const int rank = -1,
                 const std::string_view language = "C++"
             ) {
-                log(LogLevel::Critical, message, logger_name, std::move(source), origin, rank, language);
+                log(LogLevel::Critical, message, logger_name, source, origin, rank, language);
             }
 
             /**
@@ -225,19 +219,17 @@ namespace owplog::core {
              * @post Each configured handler has had `flush()` invoked once.
              * @throws No intentional exceptions.
              */
-            static void flush();
+            void flush() const;
 
             /** Deleted copy constructor for singleton semantics. */
             Logger(const Logger&) = delete;
+
             /** Deleted copy assignment for singleton semantics. */
             Logger& operator=(const Logger&) = delete;
 
-            static void configure(const LoggerConfigurationArguments& configuration) {
-                instance().configure_internal(configuration);
-            };
+            void configure(const LoggerConfigurationArguments& configuration);
 
         private:
-
             /**
              * @brief Start capturing process stdout/stderr streams.
              * @param capture_stdout Capture stdout when true.
@@ -258,13 +250,7 @@ namespace owplog::core {
             void stop_stdio_capture() const;
             void internal_shutdown();
             void internal_start();
-            void flush_internal();
             void configure_internal(const LoggerConfigurationArguments& configuration);
-            Logger() : Logger(LoggerConfigurationArguments{}) {}
-            explicit Logger(const LoggerConfigurationArguments& configuration);
-            /** @brief Ensure a graceful shutdown on process teardown. */
-            ~Logger();
-            static Logger& instance();
 
             /** @brief Worker thread main loop. */
             void worker_loop();
@@ -282,7 +268,8 @@ namespace owplog::core {
 
             /** Forward declaration for internal stdio capture bridge. */
             class StdioCapture;
-            /** Mutex protecting configuration state (level/filters/sinks/formatter). */
+
+            /** Mutex protecting configuration state (level/filters/handlers/formatter). */
             mutable std::mutex state_mutex_;
             /** Global minimum severity threshold. */
             LogLevel level_;
@@ -309,6 +296,70 @@ namespace owplog::core {
             /** Optional stdio capture subsystem instance. */
             std::unique_ptr<StdioCapture> stdio_capture_;
     };
+
+    void shutdown();
+    void set_level(LogLevel level);
+    LogLevel level();
+    void set_formatter(LogFormatterPtr formatter);
+    void set_formatter(const std::string& pattern);
+    void set_formatter(const char* pattern);
+    void add_handler(handlers::LogHandlerPtr handler);
+    void clear_handlers();
+    void add_filter(LogFilterPtr filter);
+    void clear_filters();
+    bool has_handlers();
+    bool is_configured();
+    void log(
+        LogLevel level,
+        std::string_view message,
+        std::string_view logger_name = "owplog",
+        const SourceLocation& source = {},
+        LogOrigin origin = LogOrigin::Application,
+        int rank = -1,
+        std::string_view language = "C++"
+    );
+    void error(
+        std::string_view message,
+        std::string_view logger_name = "owplog",
+        const SourceLocation& source = {},
+        LogOrigin origin = LogOrigin::Application,
+        int rank = -1,
+        std::string_view language = "C++"
+    );
+    void warning(
+        std::string_view message,
+        std::string_view logger_name = "owplog",
+        const SourceLocation& source = {},
+        LogOrigin origin = LogOrigin::Application,
+        int rank = -1,
+        std::string_view language = "C++"
+    );
+    void info(
+        std::string_view message,
+        std::string_view logger_name = "owplog",
+        const SourceLocation& source = {},
+        LogOrigin origin = LogOrigin::Application,
+        int rank = -1,
+        std::string_view language = "C++"
+    );
+    void debug(
+        std::string_view message,
+        std::string_view logger_name = "owplog",
+        const SourceLocation& source = {},
+        LogOrigin origin = LogOrigin::Application,
+        int rank = -1,
+        std::string_view language = "C++"
+    );
+    void critical(
+        std::string_view message,
+        std::string_view logger_name = "owplog",
+        const SourceLocation& source = {},
+        LogOrigin origin = LogOrigin::Application,
+        int rank = -1,
+        std::string_view language = "C++"
+    );
+    void flush();
+    void configure(const LoggerConfigurationArguments& configuration);
 
     /** Per-stream redirection state. */
     struct StreamState {
@@ -345,7 +396,7 @@ namespace owplog::core {
          * @param capture_stderr Whether stderr should be captured.
          * @return True on success.
          */
-        bool start(const bool capture_stdout, const bool capture_stderr);
+        bool start(bool capture_stdout, bool capture_stderr);
 
         /**
          * @brief Stop capture threads and restore original descriptors.
@@ -370,7 +421,7 @@ namespace owplog::core {
          * @param label Logger name for forwarded records.
          * @return True on success.
          */
-        bool listen_to_stream(StreamState& state, FILE* stream, const LogOrigin origin, const std::string& label) const;
+        bool listen_to_stream(StreamState& state, FILE* stream, LogOrigin origin, const std::string& label) const;
 
         /**
          * @brief Stop one stream redirection and restore original descriptor.
@@ -391,8 +442,7 @@ namespace owplog::core {
     class Logger::StdioCapture : public LoggerStdioCapture {
     public:
         /** @brief Construct logger stdio capture bridge. */
-        explicit StdioCapture(Logger& logger)
-            : LoggerStdioCapture(logger) {}
+        explicit StdioCapture(Logger& logger) : LoggerStdioCapture(logger) {}
     };
 }
 #endif //OWPLOG_LOGGER_H

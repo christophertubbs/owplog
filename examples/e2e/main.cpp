@@ -138,7 +138,7 @@ PYBIND11_EMBEDDED_MODULE(owplog_native_bridge, m) {
             const int rank
         ) {
             const owplog::SourceLocation source{file_name, line_no, function_name};
-            owplog::Logger::log(
+            owplog::log(
                 owplog::LogLevel::Info,
                 message,
                 logger_name,
@@ -178,7 +178,7 @@ constexpr size_t JOB_COUNT_PER_TYPE = 1000;
 const std::string APPLICATION_NAME = "End2End";
 const std::filesystem::path ROOT_PATH = std::filesystem::current_path();
 const std::filesystem::path LOG_PATH = ROOT_PATH / (APPLICATION_NAME + ".log");
-constexpr bool WRITE_TO_CONSOLE = true;
+constexpr bool WRITE_TO_CONSOLE = false;
 constexpr bool APPEND_TO_LOG = false;
 
 void setup_logging() {
@@ -297,6 +297,6 @@ int main() {
     }
 
     await_jobs(futures);
-    owplog::Logger::log(owplog::LogLevel::Info, "main finished", APPLICATION_NAME, OWPLOG_SOURCE_LOCATION);
+    owplog::log(owplog::LogLevel::Info, "main finished", APPLICATION_NAME, OWPLOG_SOURCE_LOCATION);
     return 0;
 }

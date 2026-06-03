@@ -52,7 +52,6 @@ contains
                 file_name="example_fortran.f90", &
                 line_no=38_c_int, &
                 function_name="fortran_component_emit_logs", &
-                language_name="fortran", &
                 rank_value=-1_c_int &
                 )
     end subroutine fortran_component_emit_logs
@@ -130,7 +129,6 @@ contains
                         file_name="example_fortran.f90", &
                         line_no=115_c_int, &
                         function_name="fortran_component_run_fake_model", &
-                        language_name="fortran", &
                         rank_value=rank_value &
                         )
             end if
@@ -190,7 +188,6 @@ contains
                 file_name="example_fortran.f90", &
                 line_no=174_c_int, &
                 function_name="perform_fake_initialization", &
-                language_name="fortran", &
                 rank_value=rank_value &
                 )
 
@@ -203,7 +200,6 @@ contains
                 file_name="example_fortran.f90", &
                 line_no=187_c_int, &
                 function_name="perform_fake_initialization", &
-                language_name="fortran", &
                 rank_value=rank_value &
                 )
     end subroutine perform_fake_initialization
@@ -226,7 +222,6 @@ contains
                     file_name="example_fortran.f90", &
                     line_no=213_c_int, &
                     function_name="perform_fake_configuration_validation", &
-                    language_name="fortran", &
                     rank_value=rank_value &
                     )
         end if
@@ -239,7 +234,6 @@ contains
                     file_name="example_fortran.f90", &
                     line_no=228_c_int, &
                     function_name="perform_fake_configuration_validation", &
-                    language_name="fortran", &
                     rank_value=rank_value &
                     )
         end if
@@ -251,7 +245,6 @@ contains
                 file_name="example_fortran.f90", &
                 line_no=241_c_int, &
                 function_name="perform_fake_configuration_validation", &
-                language_name="fortran", &
                 rank_value=rank_value &
                 )
     end subroutine perform_fake_configuration_validation
@@ -303,7 +296,6 @@ contains
                     file_name="example_fortran.f90", &
                     line_no=305_c_int, &
                     function_name="process_fake_basin", &
-                    language_name="fortran", &
                     rank_value=rank_value &
                     )
         end if
@@ -390,7 +382,6 @@ contains
                 file_name="example_fortran.f90", &
                 line_no=399_c_int, &
                 function_name="log_component_start", &
-                language_name="fortran", &
                 rank_value=rank_value &
                 )
     end subroutine log_component_start
@@ -420,7 +411,6 @@ contains
                 file_name="example_fortran.f90", &
                 line_no=430_c_int, &
                 function_name="log_iteration_start", &
-                language_name="fortran", &
                 rank_value=rank_value &
                 )
     end subroutine log_iteration_start
@@ -454,7 +444,6 @@ contains
                 file_name="example_fortran.f90", &
                 line_no=467_c_int, &
                 function_name="log_basin_checkpoint", &
-                language_name="fortran", &
                 rank_value=rank_value &
                 )
     end subroutine log_basin_checkpoint
@@ -487,7 +476,6 @@ contains
                 file_name="example_fortran.f90", &
                 line_no=504_c_int, &
                 function_name="log_iteration_checkpoint", &
-                language_name="fortran", &
                 rank_value=rank_value &
                 )
     end subroutine log_iteration_checkpoint
@@ -518,7 +506,6 @@ contains
                 file_name="example_fortran.f90", &
                 line_no=537_c_int, &
                 function_name="log_component_summary", &
-                language_name="fortran", &
                 rank_value=rank_value &
                 )
     end subroutine log_component_summary

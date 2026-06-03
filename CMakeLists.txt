@@ -29,6 +29,7 @@ add_library(owplog STATIC
     include/owplog/handlers/handlers.h
     include/owplog/core/logger.h
     src/core/capture.cpp
+    src/core/root_logger.cpp
 )
 add_library(OWPLOG::owplog ALIAS owplog)
 

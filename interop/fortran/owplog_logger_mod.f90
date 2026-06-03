@@ -90,11 +90,11 @@ contains
     integer :: n, i
 
     n = len_trim(s)
-    allocate(cs(0:n))
+    allocate(cs(n + 1))
     do i = 1, n
-      cs(i - 1) = s(i:i)
+      cs(i) = s(i:i)
     end do
-    cs(n) = c_null_char
+    cs(n + 1) = c_null_char
   end function owplog_to_c_string
 
   !> Register a sublogger and return its handle.
@@ -151,46 +151,41 @@ contains
   !> @param file_name Optional source filename.
   !> @param line_no Optional 1-based source line number.
   !> @param function_name Optional source function/procedure name.
-  !> @param language_name Optional language/runtime label.
   !> @param rank_value Optional HPC rank (`-1` for unknown).
   !> @pre Optional character arguments should be valid Fortran strings when present.
   !> @post Metadata defaults are applied for absent optional arguments.
   !> @warning Allocation failure while preparing C strings raises a Fortran runtime error.
-  subroutine owplog_log_ex(level, logger_name, message, file_name, line_no, function_name, language_name, rank_value)
+  subroutine owplog_log_ex(level, logger_name, message, file_name, line_no, function_name, rank_value)
     integer(c_int), intent(in) :: level
     character(len=*), intent(in) :: logger_name
     character(len=*), intent(in) :: message
     character(len=*), intent(in), optional :: file_name
     integer(c_int), intent(in), optional :: line_no
     character(len=*), intent(in), optional :: function_name
-    character(len=*), intent(in), optional :: language_name
     integer(c_int), intent(in), optional :: rank_value
     character(kind=c_char), allocatable, target :: c_logger(:), c_msg(:), c_file(:), c_func(:), c_lang(:)
     type(owplog_log_meta_t) :: meta
 
     c_logger = owplog_to_c_string(logger_name)
     c_msg = owplog_to_c_string(message)
+    c_lang = owplog_to_c_string("fortran")
 
     meta%file = c_null_ptr
     meta%line = 0_c_int
     meta%function = c_null_ptr
-    meta%language = c_null_ptr
+    meta%language = c_loc(c_lang(1))
     meta%rank = -1_c_int
 
     if (present(file_name)) then
       c_file = owplog_to_c_string(file_name)
-      meta%file = c_loc(c_file(0))
+      meta%file = c_loc(c_file(1))
     end if
     if (present(line_no)) then
       meta%line = line_no
     end if
     if (present(function_name)) then
       c_func = owplog_to_c_string(function_name)
-      meta%function = c_loc(c_func(0))
-    end if
-    if (present(language_name)) then
-      c_lang = owplog_to_c_string(language_name)
-      meta%language = c_loc(c_lang(0))
+      meta%function = c_loc(c_func(1))
     end if
     if (present(rank_value)) then
       meta%rank = rank_value

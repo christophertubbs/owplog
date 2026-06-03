@@ -51,15 +51,13 @@ std::filesystem::path temp_log_path(const std::string& name) {
 } // namespace
 
 TEST(LoggerTest, HandlesConcurrentLogging) {
-    // Shared singleton logger under test.
-    owplog::basicConfig();
-    owplog::Logger::shutdown();
-    owplog::Logger::clear_handlers();
-    owplog::Logger::clear_filters();
-    owplog::Logger::set_level(owplog::LogLevel::Trace);
-
     auto sink = std::make_shared<CountingSink>();
-    owplog::Logger::add_handler(sink);
+    const auto configuration = owplog::LoggerConfigurationArguments{
+        .format="%(thread)d %(name)s %(levelname)s %(message)s",
+        .handlers = std::vector<owplog::handlers::LogHandlerPtr>{sink},
+        .level = owplog::LogLevel::Trace,
+    };
+    owplog::Logger logger = owplog::Logger(configuration);
 
     // Number of producer threads used for concurrency coverage.
     constexpr int thread_count = 8;
@@ -69,12 +67,15 @@ TEST(LoggerTest, HandlesConcurrentLogging) {
     std::vector<std::thread> threads;
     threads.reserve(thread_count);
     for (int t = 0; t < thread_count; ++t) {
-        threads.emplace_back([t]() {
+        threads.emplace_back([t, &sink, &logger]() {
             for (int i = 0; i < per_thread; ++i) {
-                owplog::Logger::log(
+                std::ostringstream message_builder;
+                message_builder << "Thread " << t << " message " << i << ", with " << sink->count() << " writes so far";
+                logger.log(
                     owplog::LogLevel::Info,
-                    "message-" + std::to_string(i),
-                    "thread-" + std::to_string(t));
+                    message_builder.str(),
+                    "HandlesConcurrentLogging"
+                );
             }
         });
     }
@@ -83,40 +84,39 @@ TEST(LoggerTest, HandlesConcurrentLogging) {
         th.join();
     }
 
-    owplog::Logger::flush();
+    logger.shutdown();
+    //owplog::Logger::flush();
     EXPECT_EQ(sink->count(), thread_count * per_thread);
 }
 
 TEST(LoggerTest, AppliesLevelFilter) {
-    owplog::basicConfig();
-    owplog::Logger::shutdown();
-    owplog::Logger::clear_handlers();
-    owplog::Logger::clear_filters();
-    owplog::Logger::set_level(owplog::LogLevel::Trace);
-
     auto sink = std::make_shared<CountingSink>();
-    owplog::Logger::add_handler(sink);
-    owplog::Logger::add_filter(std::make_shared<owplog::LevelFilter>(owplog::LogLevel::Warning));
+    const auto configuration = owplog::LoggerConfigurationArguments{
+        .format="%(thread)d %(name)s %(levelname)s %(message)s",
+        .handlers = std::vector<owplog::handlers::LogHandlerPtr>{sink},
+        .level = owplog::LogLevel::Trace,
+    };
+    owplog::Logger logger = owplog::Logger(configuration);
+    logger.add_filter(std::make_shared<owplog::LevelFilter>(owplog::LogLevel::Warning));
 
-    owplog::Logger::log(owplog::LogLevel::Info, "not-kept", "test");
-    owplog::Logger::log(owplog::LogLevel::Warning, "kept", "test");
-    owplog::Logger::log(owplog::LogLevel::Error, "kept-too", "test");
-    owplog::Logger::flush();
+    logger.log(owplog::LogLevel::Info, "not-kept", "test");
+    logger.log(owplog::LogLevel::Warning, "kept", "test");
+    logger.log(owplog::LogLevel::Error, "kept-too", "test");
+    logger.shutdown();
 
     EXPECT_EQ(sink->count(), 2);
 }
 
 TEST(LoggerTest, CApiWritesToFile) {
-    owplog::basicConfig();
-    owplog::Logger::shutdown();
-    owplog::Logger::clear_handlers();
-    owplog::Logger::clear_filters();
-    owplog::Logger::set_level(owplog::LogLevel::Trace);
-    owplog::Logger::set_formatter(std::make_shared<owplog::PatternFormatter>("%f:%l %F rank=%r lang=%g %m"));
-
     // Output path used by upstream logger sink.
     const auto path = temp_log_path("owplog_c_api");
-    owplog::Logger::add_handler(std::make_shared<owplog::handlers::FileHandler>(path.string(), false));
+    const auto configuration = owplog::LoggerConfigurationArguments{
+        .filename = path,
+        .format="%(filename)s:%(lineno)d %(funcName)s rank=%(rank)d lang=%(language)s %(message)s",
+        .force = true,
+        .level = owplog::LogLevel::Trace,
+    };
+    owplog::basicConfig(configuration);
 
     const owplog_sublogger_handle handle = owplog_logger_add_sublogger("c.test.sub");
     ASSERT_GT(handle, 0);
@@ -125,7 +125,8 @@ TEST(LoggerTest, CApiWritesToFile) {
     owplog_logger_log_sublogger(OWPLOG_LOG_INFO, handle, "hello from sublogger handle");
     const owplog_log_meta meta{"unit_test.c", 321, "test_fn", "python", 7};
     owplog_logger_log_ex(OWPLOG_LOG_INFO, "c.test.meta", "hello from ex", &meta);
-    owplog::Logger::flush();
+
+    owplog::shutdown();
 
     std::ifstream in(path);
     ASSERT_TRUE(in.is_open());
@@ -142,20 +143,20 @@ TEST(LoggerTest, CApiWritesToFile) {
 }
 
 TEST(LoggerTest, CapturesStdout) {
-    owplog::basicConfig();
-    owplog::Logger::shutdown();
-    owplog::Logger::clear_handlers();
-    owplog::Logger::clear_filters();
-    owplog::Logger::set_level(owplog::LogLevel::Trace);
-
     // Output path used for stdout capture assertions.
     const auto path = temp_log_path("owplog_capture");
-    owplog::Logger::add_handler(std::make_shared<owplog::handlers::FileHandler>(path.string(), false));
+    const auto configuration = owplog::LoggerConfigurationArguments{
+        .filename = path,
+        .format="%(thread)d %(name)s %(levelname)s %(message)s",
+        .level = owplog::LogLevel::Trace,
+    };
+    owplog::Logger logger = owplog::Logger(configuration);
 
     std::printf("captured-line-from-stdout\n");
     std::fflush(stdout);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    owplog::Logger::shutdown();
+    logger.shutdown();
+
     std::ifstream in(path);
     ASSERT_TRUE(in.is_open());
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -174,7 +175,8 @@ TEST(LoggerTest, FormatterSupportsRankToken) {
     record.thread_id = std::this_thread::get_id();
     record.rank = 42;
 
-    owplog::PatternFormatter formatter("%N rank=%r %m");
+    owplog::PatternFormatter formatter("%(name)s rank=%(rank)d %(message)");
     const std::string formatted = formatter.format(record);
+
     EXPECT_NE(formatted.find("rank=42"), std::string::npos);
 }
