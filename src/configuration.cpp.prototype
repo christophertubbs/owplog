@@ -1,4 +1,4 @@
-#include "configuration.hpp"
+#include "configuration.cpp.hpp"
 
 #include "owplog/filter.hpp"
 #include "owplog/formatter.hpp"
