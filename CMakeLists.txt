@@ -12,26 +12,27 @@ option(OWPLOG_BUILD_E2E_EXAMPLES "Build end-to-end cross-language examples" ON)
 
 find_package(Threads REQUIRED)
 
-add_library(owplog STATIC
-    src/filter.cpp
-    src/formatter.cpp
-    src/core/logger.cpp
-    include/owplog/utility.hpp
-    include/owplog/handlers/log_handler.h
-    include/owplog/handlers/file_handler.h
-    include/owplog/handlers/console_handler.h
-    src/handlers/log_handler.cpp
-    src/handlers/file_handler.cpp
-    src/handlers/console_handler.cpp
-    include/owplog/owplog.h
-    include/owplog/handlers/router.h
-    include/owplog/core/core.h
-    include/owplog/handlers/handlers.h
-    include/owplog/core/logger.h
-    src/core/capture.cpp
-    src/core/root_logger.cpp
+file(GLOB_RECURSE OWPLOG_SOURCE_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cxx"
 )
+
+file(GLOB_RECURSE OWPLOG_INCLUDE_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/owplog/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/owplog/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/owplog/*.hxx"
+)
+
+add_library(owplog STATIC)
 add_library(OWPLOG::owplog ALIAS owplog)
+
+target_sources(owplog
+    PRIVATE
+        ${OWPLOG_SOURCE_FILES}
+        ${OWPLOG_INCLUDE_FILES}
+)
 
 target_include_directories(owplog
     PUBLIC
@@ -67,9 +68,7 @@ if(OWPLOG_BUILD_TESTS)
         FetchContent_MakeAvailable(googletest)
     endif()
 
-    add_executable(owplog_tests tests/logger_tests.cpp
-        include/owplog/utility.hpp
-    )
+    add_executable(owplog_tests tests/logger_tests.cpp)
     target_link_libraries(owplog_tests PRIVATE owplog GTest::gtest_main)
     if(TARGET owplog_c)
         target_link_libraries(

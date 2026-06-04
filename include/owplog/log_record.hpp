@@ -19,21 +19,21 @@
 
 namespace owplog {
 
-/**
- * @brief Source category for records written by owplog.
- */
-enum class LogOrigin {
-    /** Application code called logger APIs directly. */
-    Application,
-    /** Record originated from captured stdout stream text. */
-    CapturedStdout,
-    /** Record originated from captured stderr stream text. */
-    CapturedStderr,
-    /** Record came from C ABI caller. */
-    CAbi
-};
+    /**
+     * @brief Source category for records written by owplog.
+     */
+    enum class LogOrigin : std::uint8_t {
+        /** Application code called logger APIs directly. */
+        Application,
+        /** Record originated from captured stdout stream text. */
+        CapturedStdout,
+        /** Record originated from captured stderr stream text. */
+        CapturedStderr,
+        /** Record came from C ABI caller. */
+        CAbi
+    };
 
-    inline std::string to_string(LogOrigin origin) {
+    inline std::string to_string(const LogOrigin origin) {
         switch (origin) {
             case LogOrigin::Application: return "Application";
             case LogOrigin::CapturedStdout: return "CapturedStdout";
@@ -91,7 +91,7 @@ enum class LogOrigin {
     const std::map<std::string_view, std::string> RECORD_FIELD_TO_PLACEHOLDER_MAP = {
         {"rank", "%(rank)d"},
         {"language", "%(language)s"},
-        {"level", "%(levelno}d"},
+        {"level", "%(levelno)d"},
         {"level_name", "%(levelname)s"},
         {"logger_name", "%(name)s"},
         {"message", "%(message)s"},

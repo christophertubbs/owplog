@@ -29,7 +29,7 @@ public:
      * @post Does not modify `record`.
      * @throws Implementations should avoid throwing; if they do, dispatch may terminate.
      */
-    virtual bool allow(const LogRecord& record) const = 0;
+    [[nodiscard]] virtual bool allow(const LogRecord& record) const = 0;
 };
 
 /**
@@ -53,7 +53,7 @@ public:
      * @post Filter state is unchanged.
      * @throws No intentional exceptions.
      */
-    bool allow(const LogRecord& record) const override;
+    [[nodiscard]] bool allow(const LogRecord& record) const override;
 
 private:
     /** Minimum allowed level threshold. */
@@ -81,7 +81,7 @@ public:
      * @post Filter state is unchanged.
      * @throws No intentional exceptions.
      */
-    bool allow(const LogRecord& record) const override;
+    [[nodiscard]] bool allow(const LogRecord& record) const override;
 
 private:
     /** Token used for substring matching. */
