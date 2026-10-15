@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" role="img" aria-labelledby="title desc">
+  <title id="title">OWPLog: many languages, one clear story</title>
+  <desc id="desc">C++, C, Python, and Fortran send records to a shared background logging core. Existing printed output stays visible and can also become log records. Handlers write to files and the console.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#101c38"/><stop offset="1" stop-color="#23385b"/></linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#75e2ce"/></marker>
+  </defs>
+  <rect width="960" height="420" rx="24" fill="url(#bg)"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="40" y="58" fill="#75e2ce" font-size="16" font-weight="700" letter-spacing="3">OWPLOG</text>
+    <text x="40" y="103" fill="#fff" font-size="34" font-weight="700">Many languages. One clear story.</text>
+    <text x="40" y="134" fill="#d7e4f5" font-size="18">Shared records. Background output. Adoption at your pace.</text>
+    <g fill="#243e60" stroke="#7897b8">
+      <rect x="40" y="171" width="125" height="48" rx="12"/>
+      <rect x="180" y="171" width="125" height="48" rx="12"/>
+      <rect x="40" y="233" width="125" height="48" rx="12"/>
+      <rect x="180" y="233" width="125" height="48" rx="12"/>
+    </g>
+    <g fill="#fff" font-size="19" text-anchor="middle">
+      <text x="102" y="202">C++</text><text x="242" y="202">C</text>
+      <text x="102" y="264">Python</text><text x="242" y="264">Fortran</text>
+    </g>
+    <g stroke="#75e2ce" stroke-width="3" fill="none" marker-end="url(#arrow)">
+      <path d="M320 226H388"/><path d="M637 226H705"/>
+      <path d="M305 342H510V283"/>
+    </g>
+    <rect x="400" y="171" width="235" height="112" rx="16" fill="#75e2ce"/>
+    <text x="517" y="212" text-anchor="middle" fill="#102239" font-size="24" font-weight="700">One logging core</text>
+    <text x="517" y="246" text-anchor="middle" fill="#102239" font-size="18">Queue + background worker</text>
+    <rect x="719" y="171" width="201" height="112" rx="16" fill="#243e60" stroke="#7897b8"/>
+    <text x="819" y="210" text-anchor="middle" fill="#fff" font-size="23" font-weight="700">Your destinations</text>
+    <text x="819" y="244" text-anchor="middle" fill="#d7e4f5" font-size="18">Files • console • routing</text>
+    <rect x="40" y="311" width="265" height="64" rx="12" fill="#243e60" stroke="#7897b8"/>
+    <text x="172" y="338" text-anchor="middle" fill="#fff" font-size="18">Existing stdout / stderr</text>
+    <text x="172" y="360" text-anchor="middle" fill="#d7e4f5" font-size="15">Original output stays visible</text>
+    <text x="540" y="349" fill="#d7e4f5" font-size="17">A copy becomes a record.</text>
+    <path d="m890 48 5 12 13 5-13 5-5 12-5-12-13-5 13-5Z" fill="#ffce7a"/>
+    <circle cx="852" cy="101" r="4" fill="#75e2ce"/>
+  </g>
+</svg>
