@@ -1,3 +1,6 @@
+> Historical prototype notes. For the built file configuration API, runtime
+> handler registry, grammar and examples, see [FILE_CONFIGURATION.md](FILE_CONFIGURATION.md).
+
 # Prototype Configuration Engine
 
 This document describes the prototype text-based configuration engine in `include/configuration.hpp` and `src/configuration.cpp`.

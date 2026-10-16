@@ -68,7 +68,7 @@ if(OWPLOG_BUILD_TESTS)
         FetchContent_MakeAvailable(googletest)
     endif()
 
-    add_executable(owplog_tests tests/logger_tests.cpp)
+    add_executable(owplog_tests tests/logger_tests.cpp tests/configuration_tests.cpp)
     target_link_libraries(owplog_tests PRIVATE owplog GTest::gtest_main)
     if(TARGET owplog_c)
         target_link_libraries(

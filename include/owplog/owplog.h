@@ -4,6 +4,7 @@
 
 #ifndef OWPLOG_OWPLOG_H
 #define OWPLOG_OWPLOG_H
+#include "owplog/configuration.hpp"
 #include "formatter.hpp"
 #include "filter.hpp"
 #include "log_level.hpp"
