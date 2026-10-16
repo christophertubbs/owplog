@@ -1,24 +1,24 @@
 name: Generate documentation
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [master]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: documentation-pages
+  cancel-in-progress: false
+
 jobs:
   documentation:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Check out the merged revision
+      - name: Check out the revision
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
       - name: Install documentation tools
         run: |
@@ -46,3 +46,24 @@ jobs:
           path: build/docs/warnings.log
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Upload GitHub Pages site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/docs/html/
+
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    needs: documentation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy documentation to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

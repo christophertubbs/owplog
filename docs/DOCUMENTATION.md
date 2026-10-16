@@ -26,9 +26,23 @@ licensed under MIT; see [theme/LICENSE](theme/LICENSE). The upstream revision is
 `568f56cde6ac78b6dfcc14acd380b2e745c301ea`. To update it, replace
 `docs/theme/doxygen-awesome.css` and its license from a reviewed upstream release.
 
-The **Generate documentation** GitHub Actions workflow runs when a pull request
-into `master` is merged. Closed, unmerged PRs are skipped. It builds the merge
-commit and uploads the complete HTML site as the `owplog-documentation` artifact,
-available from the workflow run for 30 days. Download and extract the artifact
-before opening `index.html`. The workflow also supports manual runs from the
-Actions tab. It does not publish to GitHub Pages.
+## Publish with GitHub Pages
+
+In repository **Settings → Pages → Build and deployment**, select **GitHub
+Actions** as the source. No `gh-pages` branch or committed generated HTML is
+needed.
+
+The **Generate documentation** workflow builds and deploys the site on pushes to
+`master`, including merged pull requests. It also supports manual runs from the
+Actions tab; select `master` to publish. Manual runs on other branches only build
+artifacts. The `github-pages` environment must allow deployments from `master`.
+
+After a successful deployment, the site is available at
+<https://christophertubbs.github.io/owplog/>. The deployment job also exposes the
+site URL in the Actions run. You can link to this URL from the repository's About
+website field, README, or wiki.
+
+The complete HTML site remains available as the `owplog-documentation` download
+artifact for 30 days. Extract it before opening `index.html`. The generation
+helper creates the output directory on fresh checkouts and includes `.nojekyll`
+for compatibility with GitHub Pages hosting.
