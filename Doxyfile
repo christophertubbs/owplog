@@ -6,7 +6,8 @@ INPUT                  = README.md include/owplog interop docs examples/e2e/READ
 FILE_PATTERNS          = *.h *.hpp *.f90 *.py *.md
 RECURSIVE              = YES
 EXCLUDE                = docs/theme
-USE_MDFILE_AS_MAINPAGE = README.md
+# An absolute path avoids matching every README.md with Doxygen 1.9.8.
+USE_MDFILE_AS_MAINPAGE = $(PWD)/README.md
 MARKDOWN_SUPPORT       = YES
 MARKDOWN_ID_STYLE      = GITHUB
 ALIASES                = "error=\par Error^^"
