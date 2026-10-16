@@ -1,0 +1,48 @@
+name: Generate documentation
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  documentation:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the merged revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - name: Install documentation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y doxygen graphviz
+
+      - name: Generate documentation
+        run: |
+          doxygen --version
+          bash scripts/docs.sh
+
+      - name: Upload documentation site
+        uses: actions/upload-artifact@v4
+        with:
+          name: owplog-documentation
+          path: build/docs/html/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload documentation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owplog-documentation-warnings
+          path: build/docs/warnings.log
+          if-no-files-found: ignore
+          retention-days: 14

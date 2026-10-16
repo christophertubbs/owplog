@@ -1,0 +1,52 @@
+# Run from the repository root: bash scripts/docs.sh
+PROJECT_NAME           = OWPLog
+PROJECT_BRIEF          = "Many languages. One clear story."
+OUTPUT_DIRECTORY       = build/docs
+INPUT                  = README.md include/owplog interop docs examples/e2e/README.md
+FILE_PATTERNS          = *.h *.hpp *.f90 *.py *.md
+RECURSIVE              = YES
+EXCLUDE                = docs/theme
+USE_MDFILE_AS_MAINPAGE = README.md
+MARKDOWN_SUPPORT       = YES
+MARKDOWN_ID_STYLE      = GITHUB
+ALIASES                = "error=\par Error^^"
+AUTOLINK_SUPPORT       = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+HIDE_UNDOC_MEMBERS     = YES
+FULL_PATH_NAMES        = NO
+STRIP_FROM_PATH        = .
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+SEARCHENGINE           = YES
+# Doxygen Awesome supplies light/dark styles using prefers-color-scheme.
+# Its upstream instructions require LIGHT, rather than Doxygen's AUTO theme.
+HTML_COLORSTYLE        = LIGHT
+HTML_EXTRA_STYLESHEET  = docs/theme/doxygen-awesome.css
+HTML_EXTRA_FILES       = docs/images/owplog-overview.svg
+HTML_DYNAMIC_MENUS     = NO
+TOC_INCLUDE_HEADINGS   = 3
+
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+DOT_NUM_THREADS        = 2
+UML_LOOK               = YES
+CLASS_GRAPH           = YES
+COLLABORATION_GRAPH   = NO
+CALL_GRAPH            = NO
+CALLER_GRAPH          = NO
+
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_LOGFILE           = build/docs/warnings.log
