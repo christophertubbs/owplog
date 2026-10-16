@@ -122,6 +122,10 @@ For a smaller build, set `OWPLOG_BUILD_E2E_EXAMPLES=OFF`.
 Prefer a helper? Run `bash scripts/build.sh` to build, or `bash scripts/test.sh` to build and test.
 Both accept `--help` and `--interactive`.
 
+Generate a searchable API reference with `bash scripts/docs.sh`. See the
+[documentation guide](docs/DOCUMENTATION.md) for tools, theme details, and the
+workflow that generates the site after a pull request is merged.
+
 ## Make the output yours
 
 Choose which levels to keep, filter by message text, and set a shared format.
